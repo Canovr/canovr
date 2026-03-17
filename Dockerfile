@@ -19,6 +19,6 @@ COPY app/ app/
 VOLUME /app/data
 ENV CANOVR_DB_PATH=/app/data/canovr.db
 
-EXPOSE 8000
+EXPOSE 8080
 
 CMD sh -c "litestar --app app.main:app run --host 0.0.0.0 --port ${PORT:-8000}"

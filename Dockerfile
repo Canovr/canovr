@@ -15,10 +15,10 @@ RUN python -c "import pyreason" 2>/dev/null || true
 
 COPY app/ app/
 
-# SQLite-DB im Volume
-VOLUME /app/data
+# SQLite-DB
+RUN mkdir -p /app/data
 ENV CANOVR_DB_PATH=/app/data/canovr.db
 
 EXPOSE 8080
 
-CMD sh -c "litestar --app app.main:app run --host 0.0.0.0 --port ${PORT:-8000}"
+CMD ["sh", "-c", "python -m uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8080}"]

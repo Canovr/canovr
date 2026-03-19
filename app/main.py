@@ -26,7 +26,7 @@ async def index() -> dict[str, str]:
 
 
 async def on_startup() -> None:
-    await init_db()
+    init_db()
 
 
 app = Litestar(

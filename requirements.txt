@@ -3,5 +3,6 @@ litestar[standard]>=2.21.0
 networkx>=3.0
 uvicorn>=0.30.0
 pydantic>=2.0
-sqlalchemy[asyncio]>=2.0
+sqlalchemy>=2.0
 aiosqlite>=0.20.0
+sqlalchemy-libsql>=0.1.0

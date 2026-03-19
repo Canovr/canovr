@@ -1,28 +1,37 @@
 """SQLAlchemy-Modelle und Datenbankverbindung.
 
-SQLite für Entwicklung, PostgreSQL für Produktion —
-ein Connection-String-Wechsel genügt.
+Turso (libSQL) für Produktion, lokale SQLite für Entwicklung.
 """
 
 from __future__ import annotations
 
 import datetime as dt
 import os
-from pathlib import Path
 
-from sqlalchemy import ForeignKey, String, Text, func
-from sqlalchemy.ext.asyncio import AsyncAttrs, async_sessionmaker, create_async_engine
-from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
+from sqlalchemy import ForeignKey, String, Text, create_engine, func
+from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, relationship, sessionmaker
 
 
-DB_PATH = Path(os.environ.get("CANOVR_DB_PATH", Path(__file__).parent.parent / "canovr.db"))
-DATABASE_URL = f"sqlite+aiosqlite:///{DB_PATH}"
+# Turso: TURSO_DATABASE_URL + TURSO_AUTH_TOKEN gesetzt → remote
+# Lokal: sqlite:///canovr.db
+_turso_url = os.environ.get("TURSO_DATABASE_URL")
+_turso_token = os.environ.get("TURSO_AUTH_TOKEN")
 
-engine = create_async_engine(DATABASE_URL, echo=False)
-async_session = async_sessionmaker(engine, expire_on_commit=False)
+if _turso_url and _turso_token:
+    # sqlite+libsql://... format für sqlalchemy-libsql
+    _url = _turso_url.replace("libsql://", "sqlite+libsql://")
+    DATABASE_URL = f"{_url}?secure=true&auth_token={_turso_token}"
+    print(f"DB: Turso ({_turso_url})")
+else:
+    _db_path = os.environ.get("CANOVR_DB_PATH", "canovr.db")
+    DATABASE_URL = f"sqlite:///{_db_path}"
+    print(f"DB: Local SQLite ({_db_path})")
+
+engine = create_engine(DATABASE_URL, echo=False)
+SyncSession = sessionmaker(engine, expire_on_commit=False)
 
 
-class Base(AsyncAttrs, DeclarativeBase):
+class Base(DeclarativeBase):
     pass
 
 
@@ -108,7 +117,6 @@ class PaceHistory(Base):
     athlete: Mapped[Athlete] = relationship(back_populates="pace_history")
 
 
-async def init_db() -> None:
-    """Erstelle alle Tabellen (Auto-Create für Entwicklung)."""
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+def init_db() -> None:
+    """Erstelle alle Tabellen."""
+    Base.metadata.create_all(engine)

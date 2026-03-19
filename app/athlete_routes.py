@@ -19,7 +19,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
-from app.database import CompletedWorkout, PaceHistory, RaceResult, WeekPlan, async_session
+from app.database import CompletedWorkout, PaceHistory, RaceResult, WeekPlan, SyncSession
 from app.database import Athlete as AthleteDB
 from app.knowledge import DISTANCE_VOLUME, WORKOUT_TEMPLATES
 from app.models import (
@@ -167,9 +167,9 @@ class WorkoutHistoryResponse(BaseModel):
 #  HILFSFUNKTIONEN
 # =========================================================================
 
-async def _get_athlete(athlete_id: int) -> AthleteDB:
-    async with async_session() as session:
-        result = await session.execute(
+def _get_athlete(athlete_id: int) -> AthleteDB:
+    with SyncSession() as session:
+        result = session.execute(
             select(AthleteDB).where(AthleteDB.id == athlete_id)
         )
         athlete = result.scalar_one_or_none()
@@ -195,11 +195,11 @@ def _athlete_to_response(a: AthleteDB) -> AthleteResponse:
     )
 
 
-async def _get_last_week_workouts(athlete_id: int) -> list[str]:
+def _get_last_week_workouts(athlete_id: int) -> list[str]:
     """Hole die Workouts der letzten 7 Tage aus der DB."""
     cutoff = dt.date.today() - dt.timedelta(days=7)
-    async with async_session() as session:
-        result = await session.execute(
+    with SyncSession() as session:
+        result = session.execute(
             select(CompletedWorkout.workout_key)
             .where(CompletedWorkout.athlete_id == athlete_id)
             .where(CompletedWorkout.date >= cutoff)
@@ -207,10 +207,10 @@ async def _get_last_week_workouts(athlete_id: int) -> list[str]:
         return [row[0] for row in result.all()]
 
 
-async def _days_since_last_hard_workout(athlete_id: int) -> int:
+def _days_since_last_hard_workout(athlete_id: int) -> int:
     """Tage seit letztem harten Workout. 99 wenn keine Historie."""
-    async with async_session() as session:
-        result = await session.execute(
+    with SyncSession() as session:
+        result = session.execute(
             select(CompletedWorkout.date)
             .where(CompletedWorkout.athlete_id == athlete_id)
             .where(CompletedWorkout.zone.notin_(["z80", None]))
@@ -223,10 +223,10 @@ async def _days_since_last_hard_workout(athlete_id: int) -> int:
         return (dt.date.today() - row).days
 
 
-async def _days_since_last_pace_update(athlete_id: int) -> int:
+def _days_since_last_pace_update(athlete_id: int) -> int:
     """Wochen seit letztem Pace-Update."""
-    async with async_session() as session:
-        result = await session.execute(
+    with SyncSession() as session:
+        result = session.execute(
             select(PaceHistory.date)
             .where(PaceHistory.athlete_id == athlete_id)
             .order_by(PaceHistory.date.desc())
@@ -271,7 +271,7 @@ class AthleteController(Controller):
         if data.target_distance not in DISTANCES:
             raise ValueError(f"Unbekannte Distanz: {data.target_distance}")
 
-        async with async_session() as session:
+        with SyncSession() as session:
             athlete = AthleteDB(
                 name=data.name,
                 target_distance=data.target_distance,
@@ -286,14 +286,14 @@ class AthleteController(Controller):
                 days_to_race=data.days_to_race,
             )
             session.add(athlete)
-            await session.commit()
-            await session.refresh(athlete)
+            session.commit()
+            session.refresh(athlete)
             return _athlete_to_response(athlete)
 
     @get("/{athlete_id:int}")
     async def get_athlete(self, athlete_id: int) -> AthleteResponse:
         """Athletenprofil abrufen."""
-        athlete = await _get_athlete(athlete_id)
+        athlete = _get_athlete(athlete_id)
         return _athlete_to_response(athlete)
 
     @patch("/{athlete_id:int}")
@@ -311,8 +311,8 @@ class AthleteController(Controller):
         )])],
     ) -> AthleteResponse:
         """Athletenprofil aktualisieren."""
-        async with async_session() as session:
-            result = await session.execute(
+        with SyncSession() as session:
+            result = session.execute(
                 select(AthleteDB).where(AthleteDB.id == athlete_id)
             )
             athlete = result.scalar_one_or_none()
@@ -322,8 +322,8 @@ class AthleteController(Controller):
             for field, value in data.model_dump(exclude_unset=True).items():
                 setattr(athlete, field, value)
 
-            await session.commit()
-            await session.refresh(athlete)
+            session.commit()
+            session.refresh(athlete)
             return _athlete_to_response(athlete)
 
     @post("/{athlete_id:int}/race")
@@ -341,9 +341,9 @@ class AthleteController(Controller):
         )])],
     ) -> RaceResultResponse:
         """Rennergebnis eintragen + automatisches Pace-Update."""
-        athlete = await _get_athlete(athlete_id)
+        athlete = _get_athlete(athlete_id)
 
-        async with async_session() as session:
+        with SyncSession() as session:
             # Rennergebnis speichern
             race = RaceResult(
                 athlete_id=athlete_id,
@@ -355,7 +355,7 @@ class AthleteController(Controller):
             session.add(race)
 
             # Automatisches Pace-Update via PyReason
-            weeks_since = await _days_since_last_pace_update(athlete_id)
+            weeks_since = _days_since_last_pace_update(athlete_id)
             update_input = PaceUpdateInput(
                 target_distance=athlete.target_distance,
                 current_race_time_seconds=athlete.race_time_seconds,
@@ -385,13 +385,13 @@ class AthleteController(Controller):
                 session.add(ph)
 
                 # Athleten-Pace aktualisieren
-                result = await session.execute(
+                result = session.execute(
                     select(AthleteDB).where(AthleteDB.id == athlete_id)
                 )
                 db_athlete = result.scalar_one()
                 db_athlete.race_time_seconds = new_time
 
-            await session.commit()
+            session.commit()
 
             pace = seconds_to_display(data.time_seconds / DISTANCES.get(data.distance, 1))
             return RaceResultResponse(
@@ -416,9 +416,9 @@ class AthleteController(Controller):
         )])],
     ) -> WorkoutHistoryResponse:
         """Workout als erledigt markieren."""
-        await _get_athlete(athlete_id)  # Existenz prüfen
+        _get_athlete(athlete_id)  # Existenz prüfen
 
-        async with async_session() as session:
+        with SyncSession() as session:
             workout = CompletedWorkout(
                 athlete_id=athlete_id,
                 date=data.date,
@@ -429,8 +429,8 @@ class AthleteController(Controller):
                 notes=data.notes,
             )
             session.add(workout)
-            await session.commit()
-            await session.refresh(workout)
+            session.commit()
+            session.refresh(workout)
 
             tmpl = WORKOUT_TEMPLATES.get(data.workout_key, {})
             return WorkoutHistoryResponse(
@@ -442,11 +442,11 @@ class AthleteController(Controller):
     @get("/{athlete_id:int}/history")
     async def get_history(self, athlete_id: int) -> dict:
         """Trainingshistorie: Workouts, Rennen, Pace-Verlauf."""
-        await _get_athlete(athlete_id)
+        _get_athlete(athlete_id)
 
-        async with async_session() as session:
+        with SyncSession() as session:
             # Letzte 30 Workouts
-            workouts_q = await session.execute(
+            workouts_q = session.execute(
                 select(CompletedWorkout)
                 .where(CompletedWorkout.athlete_id == athlete_id)
                 .order_by(CompletedWorkout.date.desc())
@@ -455,7 +455,7 @@ class AthleteController(Controller):
             workouts = workouts_q.scalars().all()
 
             # Alle Rennergebnisse
-            races_q = await session.execute(
+            races_q = session.execute(
                 select(RaceResult)
                 .where(RaceResult.athlete_id == athlete_id)
                 .order_by(RaceResult.date.desc())
@@ -463,7 +463,7 @@ class AthleteController(Controller):
             races = races_q.scalars().all()
 
             # Pace-History
-            paces_q = await session.execute(
+            paces_q = session.execute(
                 select(PaceHistory)
                 .where(PaceHistory.athlete_id == athlete_id)
                 .order_by(PaceHistory.date.desc())
@@ -504,8 +504,8 @@ class AthleteController(Controller):
 
         Liest Profil, letzte Workouts und Pace-History automatisch aus der DB.
         """
-        athlete = await _get_athlete(athlete_id)
-        last_week = await _get_last_week_workouts(athlete_id)
+        athlete = _get_athlete(athlete_id)
+        last_week = _get_last_week_workouts(athlete_id)
 
         inp = WeekPlanInput(
             target_distance=athlete.target_distance,
@@ -518,7 +518,7 @@ class AthleteController(Controller):
             last_week_workouts=last_week,
             rest_day=athlete.rest_day,
             long_run_day=athlete.long_run_day,
-            days_since_hard_workout=await _days_since_last_hard_workout(athlete_id),
+            days_since_hard_workout=_days_since_last_hard_workout(athlete_id),
             days_to_race=athlete.days_to_race,
         )
 

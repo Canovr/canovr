@@ -263,7 +263,7 @@ def run_inference(
             _add_fact(fact_str, name, result)
 
         # 4. REASONING
-        interpretation = pr.reason(timesteps=2)
+        interpretation = pr.reason(timesteps=4)
 
         # 5. ERGEBNISSE EXTRAHIEREN
         _extract_results(interpretation, result)
@@ -349,7 +349,7 @@ def run_pace_update_inference(inp: PaceUpdateInput) -> InferenceResult:
             _add_fact(fact_str, name, result)
 
         # Reasoning
-        interpretation = pr.reason(timesteps=2)
+        interpretation = pr.reason(timesteps=4)
 
         # Ergebnisse
         _extract_results(interpretation, result)

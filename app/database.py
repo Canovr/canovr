@@ -7,13 +7,17 @@ Production: Turso/libSQL via TURSO_DATABASE_URL + TURSO_AUTH_TOKEN.
 from __future__ import annotations
 
 import datetime as dt
+import logging
 import os
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Mapping
 
 from sqlalchemy import ForeignKey, String, Text, create_engine, func, inspect, text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, relationship, sessionmaker
+
+LOGGER = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -199,6 +203,40 @@ def _validate_turso_schema() -> None:
         raise RuntimeError("Turso-Schema konnte nicht geprüft werden.") from exc
 
 
+def _should_auto_migrate_turso() -> bool:
+    return _parse_bool(os.environ.get("CANOVR_AUTO_MIGRATE_TURSO"), default=True)
+
+
+def _alembic_ini_path() -> Path:
+    configured = os.environ.get("ALEMBIC_CONFIG")
+    if configured:
+        return Path(configured)
+    return Path(__file__).resolve().parent.parent / "alembic.ini"
+
+
+def _run_alembic_upgrade_head() -> None:
+    try:
+        from alembic import command
+        from alembic.config import Config
+    except Exception as exc:  # noqa: BLE001
+        raise RuntimeError(
+            "Alembic ist nicht importierbar. Stelle sicher, dass die Dependency installiert ist."
+        ) from exc
+
+    alembic_ini = _alembic_ini_path()
+    if not alembic_ini.exists():
+        raise RuntimeError(
+            f"Alembic-Konfiguration nicht gefunden: {alembic_ini}. "
+            "Migration kann nicht ausgeführt werden."
+        )
+
+    try:
+        config = Config(str(alembic_ini))
+        command.upgrade(config, "head")
+    except Exception as exc:  # noqa: BLE001
+        raise RuntimeError("Automatische Turso-Migration (alembic upgrade head) fehlgeschlagen.") from exc
+
+
 def init_db() -> None:
     """Initialisiere DB-Verbindung und validiere/verwalte Schema."""
     try:
@@ -208,7 +246,17 @@ def init_db() -> None:
         raise RuntimeError("Datenbank-Verbindung fehlgeschlagen.") from exc
 
     if IS_TURSO:
-        _validate_turso_schema()
+        try:
+            _validate_turso_schema()
+        except RuntimeError:
+            if not _should_auto_migrate_turso():
+                raise
+
+            LOGGER.warning(
+                "Turso-Schema unvollständig. Starte automatische Migration via Alembic."
+            )
+            _run_alembic_upgrade_head()
+            _validate_turso_schema()
         return
 
     if SETTINGS.auto_create_local_schema:

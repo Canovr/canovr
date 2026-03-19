@@ -97,13 +97,16 @@ def test_init_db_local_creates_schema(monkeypatch):
 
 
 def test_init_db_turso_validates_without_create_all(monkeypatch):
-    flags = {"create_all_called": False, "validate_called": False}
+    flags = {"create_all_called": False, "validate_called": False, "migrate_called": False}
 
     def _fake_create_all(_engine):
         flags["create_all_called"] = True
 
     def _fake_validate():
         flags["validate_called"] = True
+
+    def _fake_migrate():
+        flags["migrate_called"] = True
 
     monkeypatch.setattr(database, "engine", _DummyEngine())
     monkeypatch.setattr(
@@ -119,7 +122,77 @@ def test_init_db_turso_validates_without_create_all(monkeypatch):
     monkeypatch.setattr(database, "IS_TURSO", True)
     monkeypatch.setattr(database.Base.metadata, "create_all", _fake_create_all)
     monkeypatch.setattr(database, "_validate_turso_schema", _fake_validate)
+    monkeypatch.setattr(database, "_run_alembic_upgrade_head", _fake_migrate)
 
     database.init_db()
     assert flags["validate_called"] is True
     assert flags["create_all_called"] is False
+    assert flags["migrate_called"] is False
+
+
+def test_init_db_turso_auto_migrates_if_schema_missing(monkeypatch):
+    flags = {"validate_calls": 0, "migrate_called": False}
+
+    def _fake_validate():
+        flags["validate_calls"] += 1
+        if flags["validate_calls"] == 1:
+            raise RuntimeError("schema missing")
+
+    def _fake_migrate():
+        flags["migrate_called"] = True
+
+    monkeypatch.setattr(database, "engine", _DummyEngine())
+    monkeypatch.setattr(
+        database,
+        "SETTINGS",
+        database.DatabaseSettings(
+            mode="turso",
+            database_url="sqlite+libsql://example-db.turso.io?secure=true",
+            connect_args={"auth_token": "secret"},
+            auto_create_local_schema=False,
+        ),
+    )
+    monkeypatch.setattr(database, "IS_TURSO", True)
+    monkeypatch.setattr(database, "_validate_turso_schema", _fake_validate)
+    monkeypatch.setattr(database, "_run_alembic_upgrade_head", _fake_migrate)
+    monkeypatch.delenv("CANOVR_AUTO_MIGRATE_TURSO", raising=False)
+
+    database.init_db()
+    assert flags["migrate_called"] is True
+    assert flags["validate_calls"] == 2
+
+
+def test_init_db_turso_raises_if_auto_migrate_disabled(monkeypatch):
+    flags = {"validate_calls": 0, "migrate_called": False}
+
+    def _fake_validate():
+        flags["validate_calls"] += 1
+        raise RuntimeError("schema missing")
+
+    def _fake_migrate():
+        flags["migrate_called"] = True
+
+    monkeypatch.setattr(database, "engine", _DummyEngine())
+    monkeypatch.setattr(
+        database,
+        "SETTINGS",
+        database.DatabaseSettings(
+            mode="turso",
+            database_url="sqlite+libsql://example-db.turso.io?secure=true",
+            connect_args={"auth_token": "secret"},
+            auto_create_local_schema=False,
+        ),
+    )
+    monkeypatch.setattr(database, "IS_TURSO", True)
+    monkeypatch.setattr(database, "_validate_turso_schema", _fake_validate)
+    monkeypatch.setattr(database, "_run_alembic_upgrade_head", _fake_migrate)
+    monkeypatch.setenv("CANOVR_AUTO_MIGRATE_TURSO", "false")
+
+    try:
+        database.init_db()
+        assert False, "RuntimeError erwartet"
+    except RuntimeError:
+        pass
+
+    assert flags["validate_calls"] == 1
+    assert flags["migrate_called"] is False

@@ -12,6 +12,12 @@ from litestar.openapi.spec import Contact, Tag
 
 from app.athlete_routes import AthleteController
 from app.database import init_db
+from app.inference_worker import (
+    InferenceServiceHTTPError,
+    get_inference_worker,
+    inference_service_exception_handler,
+    should_skip_worker_startup,
+)
 from app.routes import TrainingController
 
 
@@ -27,11 +33,20 @@ async def index() -> dict[str, str]:
 
 async def on_startup() -> None:
     init_db()
+    if should_skip_worker_startup():
+        return
+    get_inference_worker().start()
+
+
+async def on_shutdown() -> None:
+    get_inference_worker().shutdown()
 
 
 app = Litestar(
     route_handlers=[index, TrainingController, AthleteController],
     on_startup=[on_startup],
+    on_shutdown=[on_shutdown],
+    exception_handlers={InferenceServiceHTTPError: inference_service_exception_handler},
     debug=True,
     openapi_config=OpenAPIConfig(
         title="CanovR",

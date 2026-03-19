@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import datetime as dt
 import json
+import logging
+import time
 
 from typing import Annotated
 
@@ -21,6 +23,7 @@ from sqlalchemy.orm import selectinload
 
 from app.database import CompletedWorkout, PaceHistory, RaceResult, WeekPlan, SyncSession
 from app.database import Athlete as AthleteDB
+from app.inference_worker import get_inference_worker
 from app.knowledge import DISTANCE_VOLUME, WORKOUT_TEMPLATES
 from app.models import (
     DISTANCES,
@@ -31,7 +34,10 @@ from app.models import (
 )
 from app.pace import ZONE_ROLES, compute_all_zones, race_pace_per_km, seconds_to_display
 from app.planner import generate_week_plan
-from app.reasoner import run_pace_update_inference, run_week_inference
+from app.reasoner import InferenceResult, run_pace_update_inference
+
+
+_LOGGER = logging.getLogger("canovr.athlete_week")
 
 
 # =========================================================================
@@ -504,8 +510,16 @@ class AthleteController(Controller):
 
         Liest Profil, letzte Workouts und Pace-History automatisch aus der DB.
         """
+        total_start = time.perf_counter()
+
+        load_athlete_start = time.perf_counter()
         athlete = _get_athlete(athlete_id)
+        load_athlete_ms = (time.perf_counter() - load_athlete_start) * 1000
+
+        load_history_start = time.perf_counter()
         last_week = _get_last_week_workouts(athlete_id)
+        days_since_hard = _days_since_last_hard_workout(athlete_id)
+        load_history_ms = (time.perf_counter() - load_history_start) * 1000
 
         inp = WeekPlanInput(
             target_distance=athlete.target_distance,
@@ -518,9 +532,29 @@ class AthleteController(Controller):
             last_week_workouts=last_week,
             rest_day=athlete.rest_day,
             long_run_day=athlete.long_run_day,
-            days_since_hard_workout=_days_since_last_hard_workout(athlete_id),
+            days_since_hard_workout=days_since_hard,
             days_to_race=athlete.days_to_race,
         )
 
-        inference = run_week_inference(inp)
-        return generate_week_plan(inp, inference)
+        inference_start = time.perf_counter()
+        inference_payload, inference_request_id = get_inference_worker().infer_week(inp)
+        inference_ms = (time.perf_counter() - inference_start) * 1000
+
+        plan_start = time.perf_counter()
+        inference = InferenceResult(**inference_payload)
+        plan = generate_week_plan(inp, inference)
+        plan_ms = (time.perf_counter() - plan_start) * 1000
+
+        total_ms = (time.perf_counter() - total_start) * 1000
+        _LOGGER.info(json.dumps({
+            "event": "athlete_week_timing",
+            "athlete_id": athlete_id,
+            "inference_request_id": inference_request_id,
+            "load_athlete_ms": round(load_athlete_ms, 2),
+            "load_history_ms": round(load_history_ms, 2),
+            "inference_ms": round(inference_ms, 2),
+            "plan_ms": round(plan_ms, 2),
+            "total_ms": round(total_ms, 2),
+        }, ensure_ascii=False))
+
+        return plan

@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import json
+import logging
+import time
 from typing import Annotated
 
 from litestar import Controller, get, post
@@ -21,8 +24,9 @@ from app.models import (
     WeeklyPlan,
     WorkoutSuggestion,
 )
+from app.inference_worker import get_inference_worker
 from app.pace import ZONE_ROLES, compute_all_zones, race_pace_per_km, seconds_to_display
-from app.reasoner import run_inference, run_pace_update_inference, run_week_inference
+from app.reasoner import InferenceResult, run_inference, run_pace_update_inference
 
 
 WORKOUT_ZONE: dict[str, int] = {
@@ -34,6 +38,8 @@ WORKOUT_ZONE: dict[str, int] = {
     "speed_intervals": 110, "short_reps": 110,
     "strides": 115, "hill_sprints": 115,
 }
+
+_LOGGER = logging.getLogger("canovr.training_week")
 
 
 class TrainingController(Controller):
@@ -147,13 +153,34 @@ class TrainingController(Controller):
         """7-Tage-Wochenplan via PyReason + Constraint-Solving."""
         from app.planner import generate_week_plan
 
+        total_start = time.perf_counter()
+
         if data.target_distance not in DISTANCES:
             raise ValueError(f"Unbekannte Distanz. Gültig: {', '.join(DISTANCES.keys())}")
         if data.current_phase not in ("general", "supportive", "specific"):
             raise ValueError("Phase muss 'general', 'supportive' oder 'specific' sein")
 
-        inference = run_week_inference(data)
-        return generate_week_plan(data, inference)
+        inference_start = time.perf_counter()
+        inference_payload, inference_request_id = get_inference_worker().infer_week(data)
+        inference_ms = (time.perf_counter() - inference_start) * 1000
+
+        plan_start = time.perf_counter()
+        inference = InferenceResult(**inference_payload)
+        plan = generate_week_plan(data, inference)
+        plan_ms = (time.perf_counter() - plan_start) * 1000
+
+        total_ms = (time.perf_counter() - total_start) * 1000
+        _LOGGER.info(json.dumps({
+            "event": "training_week_timing",
+            "inference_request_id": inference_request_id,
+            "load_athlete_ms": 0.0,
+            "load_history_ms": 0.0,
+            "inference_ms": round(inference_ms, 2),
+            "plan_ms": round(plan_ms, 2),
+            "total_ms": round(total_ms, 2),
+        }, ensure_ascii=False))
+
+        return plan
 
     @post("/pace-update")
     async def pace_update(

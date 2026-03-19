@@ -1,0 +1,14 @@
+steps:
+  - id: run-migrations
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk
+    entrypoint: bash
+    args:
+      - -ceu
+      - |
+        gcloud run jobs execute ${_MIGRATION_JOB} \
+          --region ${_REGION} \
+          --wait
+
+substitutions:
+  _REGION: us-central1
+  _MIGRATION_JOB: canovr-migrate

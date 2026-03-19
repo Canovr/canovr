@@ -23,6 +23,8 @@ FROM ${BASE_IMAGE}
 
 WORKDIR /app
 COPY app/ app/
+COPY alembic/ alembic/
+COPY alembic.ini .
 
 EXPOSE 8080
 

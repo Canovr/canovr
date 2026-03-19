@@ -1,23 +1,92 @@
 """SQLAlchemy-Modelle und Datenbankverbindung.
 
-Lokale SQLite-Datenbank für Entwicklung und Deployment.
+Lokal: SQLite-Datei.
+Production: Turso/libSQL via TURSO_DATABASE_URL + TURSO_AUTH_TOKEN.
 """
 
 from __future__ import annotations
 
 import datetime as dt
 import os
+from dataclasses import dataclass
+from typing import Mapping
 
-from sqlalchemy import ForeignKey, String, Text, create_engine, func
+from sqlalchemy import ForeignKey, String, Text, create_engine, func, inspect, text
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, relationship, sessionmaker
 
 
-# SQLite: standardmäßig `canovr.db`, optional via CANOVR_DB_PATH
-_db_path = os.environ.get("CANOVR_DB_PATH", "canovr.db")
-DATABASE_URL = f"sqlite:///{_db_path}"
-print(f"DB: Local SQLite ({_db_path})")
+@dataclass(frozen=True)
+class DatabaseSettings:
+    mode: str
+    database_url: str
+    connect_args: dict[str, object]
+    auto_create_local_schema: bool
 
-engine = create_engine(DATABASE_URL, echo=False)
+
+def _parse_bool(value: str | None, default: bool) -> bool:
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _with_secure_true(url: str) -> str:
+    if "secure=" in url:
+        return url
+    sep = "&" if "?" in url else "?"
+    return f"{url}{sep}secure=true"
+
+
+def _normalize_turso_url(raw_url: str) -> str:
+    if raw_url.startswith("sqlite+libsql://"):
+        return _with_secure_true(raw_url)
+    if raw_url.startswith("libsql://"):
+        return _with_secure_true(f"sqlite+{raw_url}")
+    raise RuntimeError(
+        "Ungültige TURSO_DATABASE_URL. Erwartet: libsql://... oder sqlite+libsql://..."
+    )
+
+
+def resolve_database_settings(env: Mapping[str, str] | None = None) -> DatabaseSettings:
+    source = env or os.environ
+    turso_url = source.get("TURSO_DATABASE_URL")
+    turso_token = source.get("TURSO_AUTH_TOKEN")
+
+    if bool(turso_url) ^ bool(turso_token):
+        raise RuntimeError(
+            "Unvollständige Turso-Konfiguration: TURSO_DATABASE_URL und TURSO_AUTH_TOKEN "
+            "müssen gemeinsam gesetzt sein."
+        )
+
+    if turso_url and turso_token:
+        return DatabaseSettings(
+            mode="turso",
+            database_url=_normalize_turso_url(turso_url),
+            connect_args={"auth_token": turso_token},
+            auto_create_local_schema=False,
+        )
+
+    db_path = source.get("CANOVR_DB_PATH", "canovr.db")
+    auto_create_local_schema = _parse_bool(source.get("CANOVR_AUTO_CREATE_SCHEMA"), default=True)
+    return DatabaseSettings(
+        mode="sqlite",
+        database_url=f"sqlite:///{db_path}",
+        connect_args={"check_same_thread": False},
+        auto_create_local_schema=auto_create_local_schema,
+    )
+
+
+SETTINGS = resolve_database_settings()
+DATABASE_URL = SETTINGS.database_url
+DATABASE_CONNECT_ARGS = SETTINGS.connect_args
+IS_TURSO = SETTINGS.mode == "turso"
+
+engine = create_engine(
+    DATABASE_URL,
+    echo=False,
+    pool_pre_ping=True,
+    connect_args=DATABASE_CONNECT_ARGS,
+)
 SyncSession = sessionmaker(engine, expire_on_commit=False)
 
 
@@ -107,6 +176,40 @@ class PaceHistory(Base):
     athlete: Mapped[Athlete] = relationship(back_populates="pace_history")
 
 
+def _validate_turso_schema() -> None:
+    """Production-Guard: Schema muss bereits per Alembic migriert sein."""
+    try:
+        inspector = inspect(engine)
+        required_tables = (
+            "alembic_version",
+            "athletes",
+            "race_results",
+            "completed_workouts",
+            "week_plans",
+            "pace_history",
+        )
+        missing = [table for table in required_tables if not inspector.has_table(table)]
+        if missing:
+            raise RuntimeError(
+                "Turso-Schema unvollständig oder nicht migriert. "
+                "Führe 'alembic upgrade head' aus. "
+                f"Fehlende Tabellen: {', '.join(missing)}"
+            )
+    except SQLAlchemyError as exc:
+        raise RuntimeError("Turso-Schema konnte nicht geprüft werden.") from exc
+
+
 def init_db() -> None:
-    """Erstelle alle Tabellen."""
-    Base.metadata.create_all(engine)
+    """Initialisiere DB-Verbindung und validiere/verwalte Schema."""
+    try:
+        with engine.connect() as conn:
+            conn.execute(text("SELECT 1"))
+    except SQLAlchemyError as exc:
+        raise RuntimeError("Datenbank-Verbindung fehlgeschlagen.") from exc
+
+    if IS_TURSO:
+        _validate_turso_schema()
+        return
+
+    if SETTINGS.auto_create_local_schema:
+        Base.metadata.create_all(engine)

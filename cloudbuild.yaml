@@ -1,0 +1,34 @@
+steps:
+  - id: build-and-push
+    name: gcr.io/cloud-builders/docker
+    entrypoint: bash
+    args:
+      - -ceu
+      - |
+        BASE_TAG="$(sha256sum requirements.txt | cut -c1-16)"
+        BASE_IMAGE="${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/canovr-base:${BASE_TAG}"
+        APP_IMAGE_SHA="${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/canovr:${COMMIT_SHA}"
+        APP_IMAGE_LATEST="${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/canovr:latest"
+
+        echo "Pruefe Base-Image: ${BASE_IMAGE}"
+        if docker pull "${BASE_IMAGE}" >/dev/null 2>&1; then
+          echo "Base-Image vorhanden, ueberspringe Base-Build."
+        else
+          echo "Base-Image fehlt, baue neu."
+          docker build --target build-base -t "${BASE_IMAGE}" .
+          docker push "${BASE_IMAGE}"
+        fi
+
+        echo "Baue App-Image mit Base: ${BASE_IMAGE}"
+        docker build \
+          --build-arg BASE_IMAGE="${BASE_IMAGE}" \
+          -t "${APP_IMAGE_SHA}" \
+          -t "${APP_IMAGE_LATEST}" \
+          .
+
+        docker push "${APP_IMAGE_SHA}"
+        docker push "${APP_IMAGE_LATEST}"
+
+substitutions:
+  _REGION: us-central1
+  _REPOSITORY: canovr

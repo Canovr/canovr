@@ -1,0 +1,18 @@
+steps:
+  - name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - --build-arg
+      - BASE_IMAGE=${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/canovr-base:${_BASE_TAG}
+      - -t
+      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/canovr:${_APP_TAG}
+      - .
+
+images:
+  - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/canovr:${_APP_TAG}
+
+substitutions:
+  _REGION: us-central1
+  _REPOSITORY: canovr
+  _BASE_TAG: py310-v1
+  _APP_TAG: latest

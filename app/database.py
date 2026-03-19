@@ -1,6 +1,6 @@
 """SQLAlchemy-Modelle und Datenbankverbindung.
 
-Turso (libSQL) für Produktion, lokale SQLite für Entwicklung.
+Lokale SQLite-Datenbank für Entwicklung und Deployment.
 """
 
 from __future__ import annotations
@@ -12,20 +12,10 @@ from sqlalchemy import ForeignKey, String, Text, create_engine, func
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, relationship, sessionmaker
 
 
-# Turso: TURSO_DATABASE_URL + TURSO_AUTH_TOKEN gesetzt → remote
-# Lokal: sqlite:///canovr.db
-_turso_url = os.environ.get("TURSO_DATABASE_URL")
-_turso_token = os.environ.get("TURSO_AUTH_TOKEN")
-
-if _turso_url and _turso_token:
-    # sqlite+libsql://... format für sqlalchemy-libsql
-    _url = _turso_url.replace("libsql://", "sqlite+libsql://")
-    DATABASE_URL = f"{_url}?secure=true&auth_token={_turso_token}"
-    print(f"DB: Turso ({_turso_url})")
-else:
-    _db_path = os.environ.get("CANOVR_DB_PATH", "canovr.db")
-    DATABASE_URL = f"sqlite:///{_db_path}"
-    print(f"DB: Local SQLite ({_db_path})")
+# SQLite: standardmäßig `canovr.db`, optional via CANOVR_DB_PATH
+_db_path = os.environ.get("CANOVR_DB_PATH", "canovr.db")
+DATABASE_URL = f"sqlite:///{_db_path}"
+print(f"DB: Local SQLite ({_db_path})")
 
 engine = create_engine(DATABASE_URL, echo=False)
 SyncSession = sessionmaker(engine, expire_on_commit=False)

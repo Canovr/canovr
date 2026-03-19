@@ -12,18 +12,8 @@ RUN pip install --no-cache-dir -r requirements.txt 'setuptools<81'
 
 COPY app/ app/
 
-# PyReason JIT-Cache beim Build vorwärmen (echter Inference-Run)
-RUN python -c "\
-from app.reasoner import run_inference; \
-from app.models import AthleteInput; \
-a = AthleteInput(target_distance='10k', race_time_seconds=2700, weekly_km=30, experience_years=3, current_phase='general', days_since_hard_workout=99); \
-run_inference(a); \
-print('PyReason JIT cache warmed up') \
-" && echo "=== CACHE FILES ===" \
-  && find /usr/local/lib/python3.10/site-packages/pyreason/cache -type f 2>/dev/null | head -20 \
-  && find /usr/local/lib/python3.10/site-packages/numba -name "*.nbi" -type f 2>/dev/null | head -5 \
-  && echo "=== NUMBA_CACHE_DIR ===" \
-  && python -c "import pyreason; import os; print(os.environ.get('NUMBA_CACHE_DIR', 'NOT SET'))"
+# PyReason importieren um Basis-Cache zu erstellen
+RUN python -c "import pyreason; print('PyReason imported')" 2>/dev/null || true
 
 # SQLite-DB
 RUN mkdir -p /app/data

@@ -27,18 +27,6 @@ async def index() -> dict[str, str]:
 
 async def on_startup() -> None:
     await init_db()
-    # PyReason beim Serverstart aufwärmen (JIT + Graph)
-    try:
-        from app.reasoner import run_inference
-        from app.models import AthleteInput
-        a = AthleteInput(
-            target_distance="10k", race_time_seconds=2700, weekly_km=30,
-            experience_years=3, current_phase="general", days_since_hard_workout=99,
-        )
-        run_inference(a)
-        print("PyReason warmup completed")
-    except Exception as e:
-        print(f"PyReason warmup failed: {e}")
 
 
 app = Litestar(

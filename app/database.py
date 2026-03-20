@@ -249,17 +249,10 @@ def init_db() -> None:
         raise RuntimeError("Datenbank-Verbindung fehlgeschlagen.") from exc
 
     if IS_TURSO:
-        try:
-            _validate_turso_schema()
-        except RuntimeError:
-            if not _should_auto_migrate_turso():
-                raise
-
-            LOGGER.warning(
-                "Turso-Schema unvollständig. Starte automatische Migration via Alembic."
-            )
+        if _should_auto_migrate_turso():
+            LOGGER.info("Turso: Starte alembic upgrade head (idempotent).")
             _run_alembic_upgrade_head()
-            _validate_turso_schema()
+        _validate_turso_schema()
         return
 
     if SETTINGS.auto_create_local_schema:

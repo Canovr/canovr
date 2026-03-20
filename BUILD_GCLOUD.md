@@ -78,6 +78,28 @@ gcloud run deploy canovr \
 2. Migration Job ausführen
 3. Service deployen
 
+## Post-Deploy Check (30-60 Minuten)
+
+Nach dem Deploy die folgenden Signale prüfen:
+
+- `429` Antworten
+- `504` Antworten
+- Cloud-Run Warnung `no available instance`
+- p95/p99 Latenz für `/api/athletes/` und `/api/athletes/{id}/week`
+
+Wenn weiter auffällig:
+
+```bash
+gcloud run services update canovr \
+  --project "$PROJECT_ID" \
+  --region europe-west3 \
+  --concurrency 8 \
+  --max-instances 10 \
+  --min-instances 1
+```
+
+Ziel: weniger Queueing und weniger Request-Abbrüche unter Last.
+
 ## Lokaler Workflow
 
 ```bash

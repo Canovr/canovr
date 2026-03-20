@@ -102,6 +102,9 @@ class Athlete(Base):
     __tablename__ = "athletes"
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    client_request_id: Mapped[str | None] = mapped_column(
+        String(64), unique=True, index=True, default=None
+    )
     name: Mapped[str] = mapped_column(String(100))
     target_distance: Mapped[str] = mapped_column(String(20))
     race_time_seconds: Mapped[float]

@@ -1,12 +1,18 @@
 """API-Integrationstests mit Litestar TestClient."""
 
+import concurrent.futures
+import threading
+import uuid
 import warnings
 
 warnings.filterwarnings("ignore", category=UserWarning, module="pkg_resources")
 
 import pytest
 from litestar.testing import TestClient
+from sqlalchemy import select
 
+from app.database import SyncSession
+from app.database import Athlete as AthleteDB
 from app.main import app
 
 
@@ -189,6 +195,68 @@ class TestAthleteEndpoints:
         assert r2.status_code == 200
         assert r2.json()["current_phase"] == "supportive"
         assert r2.json()["weekly_km"] == 70
+
+    def test_create_athlete_is_idempotent_with_same_key(self, client):
+        idem_key = f"test-idem-{uuid.uuid4()}"
+        payload = {
+            "name": "Idempotenz Test",
+            "target_distance": "10k",
+            "race_time_seconds": 2400,
+            "weekly_km": 80,
+            "experience_years": 5,
+            "current_phase": "supportive",
+        }
+        headers = {"X-Idempotency-Key": idem_key}
+
+        first = client.post("/api/athletes", json=payload, headers=headers)
+        second = client.post("/api/athletes", json=payload, headers=headers)
+
+        assert first.status_code == 201
+        assert second.status_code == 200
+        assert first.json()["id"] == second.json()["id"]
+        assert second.headers.get("X-Idempotency-Replayed") == "true"
+
+        with SyncSession() as session:
+            rows = session.execute(
+                select(AthleteDB).where(AthleteDB.client_request_id == idem_key)
+            ).scalars().all()
+        assert len(rows) == 1
+
+    def test_create_athlete_idempotency_handles_parallel_requests(self):
+        idem_key = f"test-idem-race-{uuid.uuid4()}"
+        payload = {
+            "name": "Idempotenz Race Test",
+            "target_distance": "10k",
+            "race_time_seconds": 2400,
+            "weekly_km": 80,
+            "experience_years": 5,
+            "current_phase": "supportive",
+        }
+        headers = {"X-Idempotency-Key": idem_key}
+        barrier = threading.Barrier(2)
+
+        def _post_once() -> tuple[int, int]:
+            with TestClient(app=app) as thread_client:
+                barrier.wait(timeout=5)
+                resp = thread_client.post("/api/athletes", json=payload, headers=headers)
+                return resp.status_code, resp.json()["id"]
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
+            fut1 = pool.submit(_post_once)
+            fut2 = pool.submit(_post_once)
+            status_id_1 = fut1.result(timeout=10)
+            status_id_2 = fut2.result(timeout=10)
+
+        statuses = {status_id_1[0], status_id_2[0]}
+        ids = {status_id_1[1], status_id_2[1]}
+        assert statuses == {200, 201}
+        assert len(ids) == 1
+
+        with SyncSession() as session:
+            rows = session.execute(
+                select(AthleteDB).where(AthleteDB.client_request_id == idem_key)
+            ).scalars().all()
+        assert len(rows) == 1
 
     def test_athlete_week_from_db(self, client):
         r = client.post("/api/athletes", json={

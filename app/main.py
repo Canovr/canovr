@@ -7,6 +7,7 @@ Full-Spectrum Percentage-Based Trainingsmethode nach John Davis.
 from __future__ import annotations
 
 import logging
+import threading
 import time
 import uuid
 from typing import Any, Awaitable, Callable
@@ -97,8 +98,27 @@ async def index() -> dict[str, str]:
     }
 
 
+def _warmup_pyreason() -> None:
+    """Background-Warmup: JIT-kompiliert PyReason ohne Startup zu blockieren."""
+    try:
+        from app.models import AthleteInput
+        from app.reasoner import run_inference
+
+        dummy = AthleteInput(
+            target_distance="10k", race_time_seconds=2700, weekly_km=30,
+            experience_years=3, current_phase="general", days_since_hard_workout=99,
+        )
+        started = time.perf_counter()
+        run_inference(dummy)
+        duration_ms = (time.perf_counter() - started) * 1000
+        LOGGER.info("pyreason.warmup.success duration_ms=%.2f", duration_ms)
+    except Exception:
+        LOGGER.exception("pyreason.warmup.failed")
+
+
 async def on_startup() -> None:
     init_db()
+    threading.Thread(target=_warmup_pyreason, daemon=True).start()
 
 
 app = Litestar(

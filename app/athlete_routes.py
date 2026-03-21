@@ -13,7 +13,7 @@ import time
 from typing import Annotated
 
 from litestar import Controller, Request, get, patch, post
-from litestar.exceptions import NotFoundException
+from litestar.exceptions import ClientException, NotFoundException
 from litestar.openapi.spec import Example
 from litestar.params import Body
 from litestar.response import Response
@@ -533,6 +533,20 @@ class AthleteController(Controller):
         """Workout als erledigt markieren."""
         with SyncSession() as session:
             _get_athlete(athlete_id, session=session)  # Existenz prüfen
+
+            # Duplikat-Prüfung: gleiches Workout am gleichen Tag?
+            existing = session.execute(
+                select(CompletedWorkout).where(
+                    CompletedWorkout.athlete_id == athlete_id,
+                    CompletedWorkout.date == data.date,
+                    CompletedWorkout.workout_key == data.workout_key,
+                )
+            ).scalar_one_or_none()
+            if existing is not None:
+                raise ClientException(
+                    detail="Dieses Workout wurde heute bereits als erledigt markiert.",
+                    status_code=409,
+                )
 
             workout = CompletedWorkout(
                 athlete_id=athlete_id,

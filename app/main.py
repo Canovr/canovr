@@ -18,6 +18,10 @@ from litestar.middleware import DefineMiddleware
 from litestar.openapi import OpenAPIConfig
 from litestar.openapi.spec import Contact, Tag
 
+from app.env_loader import load_environment
+
+load_environment()
+
 from app.athlete_routes import AthleteController
 from app.auth_guard import provide_current_user
 from app.auth_models import User  # noqa: F401 — ensures SQLAlchemy mapper sees it

@@ -9,6 +9,10 @@ from datetime import datetime, timedelta, timezone
 
 import jwt
 
+from app.env_loader import load_environment
+
+load_environment()
+
 _JWT_SECRET: str | None = None
 _JWT_ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60

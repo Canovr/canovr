@@ -17,7 +17,11 @@ from sqlalchemy import ForeignKey, String, Text, create_engine, func, inspect, t
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, relationship, sessionmaker
 
+from app.env_loader import load_environment
+
 LOGGER = logging.getLogger(__name__)
+
+load_environment()
 
 
 @dataclass(frozen=True)

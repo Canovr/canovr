@@ -9,10 +9,14 @@ from datetime import datetime, timezone
 
 import httpx
 
+from app.env_loader import load_environment
+
 LOGGER = logging.getLogger(__name__)
 
 STRAVA_TOKEN_URL = "https://www.strava.com/oauth/token"
 STRAVA_ATHLETE_URL = "https://www.strava.com/api/v3/athlete"
+
+load_environment()
 
 
 @dataclass

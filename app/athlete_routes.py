@@ -407,8 +407,9 @@ class AthleteController(Controller):
     @get("/{athlete_id:int}", sync_to_thread=True)
     def get_athlete(self, athlete_id: int) -> AthleteResponse:
         """Athletenprofil abrufen."""
-        athlete = _get_athlete(athlete_id)
-        return _athlete_to_response(athlete)
+        with SyncSession() as session:
+            athlete = _get_athlete(athlete_id, session=session)
+            return _athlete_to_response(athlete)
 
     @patch("/{athlete_id:int}", sync_to_thread=True)
     def update_athlete(
@@ -633,22 +634,21 @@ class AthleteController(Controller):
                 athlete = _get_athlete(athlete_id, session=session)
                 last_week = _get_last_week_workouts(athlete_id, session=session)
                 days_since_hard = _days_since_last_hard_workout(athlete_id, session=session)
+                inp = WeekPlanInput(
+                    target_distance=athlete.target_distance,
+                    race_time_seconds=athlete.race_time_seconds,
+                    weekly_km=athlete.weekly_km,
+                    experience_years=athlete.experience_years,
+                    current_phase=athlete.current_phase,
+                    week_in_phase=athlete.week_in_phase,
+                    phase_weeks_total=athlete.phase_weeks_total,
+                    last_week_workouts=last_week,
+                    rest_day=athlete.rest_day,
+                    long_run_day=athlete.long_run_day,
+                    days_since_hard_workout=days_since_hard,
+                    days_to_race=athlete.days_to_race,
+                )
             db_ms = (time.perf_counter() - db_started) * 1000
-
-            inp = WeekPlanInput(
-                target_distance=athlete.target_distance,
-                race_time_seconds=athlete.race_time_seconds,
-                weekly_km=athlete.weekly_km,
-                experience_years=athlete.experience_years,
-                current_phase=athlete.current_phase,
-                week_in_phase=athlete.week_in_phase,
-                phase_weeks_total=athlete.phase_weeks_total,
-                last_week_workouts=last_week,
-                rest_day=athlete.rest_day,
-                long_run_day=athlete.long_run_day,
-                days_since_hard_workout=days_since_hard,
-                days_to_race=athlete.days_to_race,
-            )
 
             inference_started = time.perf_counter()
             inference = run_week_inference(inp)

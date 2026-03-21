@@ -8,6 +8,7 @@ from litestar import Controller, get, post
 from litestar.openapi.spec import Example
 from litestar.params import Body
 
+from app.auth_models import User
 from app.knowledge import DISTANCE_VOLUME, WORKOUT_TEMPLATES
 from app.models import (
     DISTANCES,
@@ -43,6 +44,7 @@ class TrainingController(Controller):
     @post("/recommend")
     async def recommend(
         self,
+        current_user: User,
         data: Annotated[AthleteInput, Body(examples=[Example(
             summary="10k-Läufer, 40:00",
             value={
@@ -126,6 +128,7 @@ class TrainingController(Controller):
     @post("/week")
     async def week_plan(
         self,
+        current_user: User,
         data: Annotated[WeekPlanInput, Body(examples=[Example(
             summary="Supportive Phase Woche 3/8",
             value={
@@ -158,6 +161,7 @@ class TrainingController(Controller):
     @post("/pace-update")
     async def pace_update(
         self,
+        current_user: User,
         data: Annotated[PaceUpdateInput, Body(examples=[Example(
             summary="Fitness-Update nach neuem 10k",
             value={

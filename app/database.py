@@ -102,6 +102,9 @@ class Athlete(Base):
     __tablename__ = "athletes"
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id"), unique=True, default=None
+    )
     client_request_id: Mapped[str | None] = mapped_column(
         String(64), unique=True, index=True, default=None
     )
@@ -123,6 +126,7 @@ class Athlete(Base):
     completed_workouts: Mapped[list[CompletedWorkout]] = relationship(back_populates="athlete", order_by="CompletedWorkout.date.desc()")
     week_plans: Mapped[list[WeekPlan]] = relationship(back_populates="athlete", order_by="WeekPlan.created_at.desc()")
     pace_history: Mapped[list[PaceHistory]] = relationship(back_populates="athlete", order_by="PaceHistory.date.desc()")
+    user: Mapped["User | None"] = relationship(back_populates="athlete")
 
 
 class RaceResult(Base):
@@ -189,6 +193,8 @@ def _validate_turso_schema() -> None:
         inspector = inspect(engine)
         required_tables = (
             "alembic_version",
+            "users",
+            "refresh_tokens",
             "athletes",
             "race_results",
             "completed_workouts",

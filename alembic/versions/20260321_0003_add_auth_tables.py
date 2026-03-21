@@ -1,15 +1,15 @@
 """Add auth tables (users, refresh_tokens) and athletes.user_id.
 
-Revision ID: 0003
-Revises: 0002
+Revision ID: 20260321_0003
+Revises: 20260320_0002
 Create Date: 2026-03-21
 """
 
 from alembic import op
 import sqlalchemy as sa
 
-revision = "0003"
-down_revision = "0002"
+revision = "20260321_0003"
+down_revision = "20260320_0002"
 branch_labels = None
 depends_on = None
 

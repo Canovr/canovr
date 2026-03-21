@@ -12,12 +12,16 @@ import time
 import uuid
 from typing import Any, Awaitable, Callable
 
-from litestar import Litestar, get
+from litestar import Litestar, MediaType, get
+from litestar.di import Provide
 from litestar.middleware import DefineMiddleware
 from litestar.openapi import OpenAPIConfig
 from litestar.openapi.spec import Contact, Tag
 
 from app.athlete_routes import AthleteController
+from app.auth_guard import provide_current_user
+from app.auth_models import User  # noqa: F401 — ensures SQLAlchemy mapper sees it
+from app.auth_routes import AuthController
 from app.database import init_db
 from app.routes import TrainingController
 
@@ -88,14 +92,49 @@ class RequestLoggingMiddleware:
             )
 
 
-@get("/", tags=["System"])
+@get("/", tags=["System"], exclude_from_auth=True)
 async def index() -> dict[str, str]:
     """App-Info und Version."""
     return {
         "app": "CanovR",
-        "version": "0.2.0",
+        "version": "0.3.0",
         "swagger": "/schema/swagger",
     }
+
+
+AASA_RESPONSE = {
+    "applinks": {
+        "apps": [],
+        "details": [
+            {
+                "appID": "TEAMID.com.canovr.app",
+                "paths": ["/auth/strava/callback"],
+            }
+        ],
+    }
+}
+
+STRAVA_CALLBACK_HTML = """<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>CanovR</title></head>
+<body style="font-family:system-ui;text-align:center;padding:60px">
+<h2>CanovR</h2>
+<p>Falls die App nicht automatisch geöffnet wurde,<br>öffne CanovR manuell.</p>
+</body></html>"""
+
+
+@get("/.well-known/apple-app-site-association", media_type=MediaType.JSON, exclude_from_auth=True)
+async def apple_app_site_association() -> dict:
+    """Apple App Site Association für Universal Links."""
+    return AASA_RESPONSE
+
+
+@get("/auth/strava/callback", media_type=MediaType.HTML, exclude_from_auth=True)
+async def strava_callback() -> str:
+    """Strava OAuth Callback — wird von iOS als Universal Link abgefangen.
+
+    Falls iOS den Link nicht abfängt, zeigt eine Fallback-Seite.
+    """
+    return STRAVA_CALLBACK_HTML
 
 
 def _warmup_pyreason() -> None:
@@ -122,7 +161,15 @@ async def on_startup() -> None:
 
 
 app = Litestar(
-    route_handlers=[index, TrainingController, AthleteController],
+    route_handlers=[
+        index,
+        apple_app_site_association,
+        strava_callback,
+        AuthController,
+        TrainingController,
+        AthleteController,
+    ],
+    dependencies={"current_user": Provide(provide_current_user, sync_to_thread=True)},
     middleware=[DefineMiddleware(RequestLoggingMiddleware)],
     on_startup=[on_startup],
     debug=True,

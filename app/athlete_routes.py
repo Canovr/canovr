@@ -22,6 +22,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.auth_models import User
 from app.database import CompletedWorkout, PaceHistory, RaceResult, SyncSession
 from app.database import Athlete as AthleteDB
 from app.knowledge import WORKOUT_TEMPLATES
@@ -189,6 +190,12 @@ def _idempotency_key_from_request(request: Request) -> str | None:
     return key[:64]
 
 
+def _verify_ownership(athlete: AthleteDB, current_user: User) -> None:
+    """Prüft ob der Athlete dem authentifizierten User gehört."""
+    if athlete.user_id != current_user.id:
+        raise NotFoundException(detail="Athlet nicht gefunden")
+
+
 def _get_athlete(athlete_id: int, session: Session | None = None) -> AthleteDB:
     if session is not None:
         result = session.execute(select(AthleteDB).where(AthleteDB.id == athlete_id))
@@ -283,6 +290,7 @@ class AthleteController(Controller):
     def create_athlete(
         self,
         request: Request,
+        current_user: User,
         data: Annotated[AthleteCreate, Body(examples=[Example(
             summary="10k-Läuferin, 45:00",
             value={
@@ -303,6 +311,17 @@ class AthleteController(Controller):
         """Neuen Athleten anlegen."""
         if data.target_distance not in DISTANCES:
             raise ValueError(f"Unbekannte Distanz: {data.target_distance}")
+
+        # Prüfe ob User bereits einen Athleten hat
+        with SyncSession() as session:
+            existing = session.execute(
+                select(AthleteDB).where(AthleteDB.user_id == current_user.id)
+            ).scalar_one_or_none()
+            if existing:
+                raise ClientException(
+                    detail="User hat bereits ein Athletenprofil.",
+                    status_code=409,
+                )
 
         request_id = _request_id_from_request(request)
         idempotency_key = _idempotency_key_from_request(request)
@@ -336,6 +355,7 @@ class AthleteController(Controller):
                     )
 
             athlete = AthleteDB(
+                user_id=current_user.id,
                 client_request_id=idempotency_key,
                 name=data.name,
                 target_distance=data.target_distance,
@@ -405,16 +425,18 @@ class AthleteController(Controller):
             return _athlete_to_response(athlete)
 
     @get("/{athlete_id:int}", sync_to_thread=True)
-    def get_athlete(self, athlete_id: int) -> AthleteResponse:
+    def get_athlete(self, athlete_id: int, current_user: User) -> AthleteResponse:
         """Athletenprofil abrufen."""
         with SyncSession() as session:
             athlete = _get_athlete(athlete_id, session=session)
+            _verify_ownership(athlete, current_user)
             return _athlete_to_response(athlete)
 
     @patch("/{athlete_id:int}", sync_to_thread=True)
     def update_athlete(
         self,
         athlete_id: int,
+        current_user: User,
         data: Annotated[AthleteUpdate, Body(examples=[Example(
             summary="Phase-Wechsel + Umfang hoch",
             value={
@@ -433,6 +455,7 @@ class AthleteController(Controller):
             athlete = result.scalar_one_or_none()
             if not athlete:
                 raise NotFoundException(detail=f"Athlet {athlete_id} nicht gefunden")
+            _verify_ownership(athlete, current_user)
 
             for field, value in data.model_dump(exclude_unset=True).items():
                 setattr(athlete, field, value)
@@ -445,6 +468,7 @@ class AthleteController(Controller):
     def add_race_result(
         self,
         athlete_id: int,
+        current_user: User,
         data: Annotated[RaceResultCreate, Body(examples=[Example(
             summary="10k-Rennergebnis",
             value={
@@ -458,6 +482,7 @@ class AthleteController(Controller):
         """Rennergebnis eintragen + automatisches Pace-Update."""
         with SyncSession() as session:
             athlete = _get_athlete(athlete_id, session=session)
+            _verify_ownership(athlete, current_user)
 
             # Rennergebnis speichern
             race = RaceResult(
@@ -518,6 +543,7 @@ class AthleteController(Controller):
     def complete_workout(
         self,
         athlete_id: int,
+        current_user: User,
         data: Annotated[CompleteWorkoutCreate, Body(examples=[Example(
             summary="Tempo-Dauerlauf",
             value={
@@ -532,7 +558,8 @@ class AthleteController(Controller):
     ) -> WorkoutHistoryResponse:
         """Workout als erledigt markieren."""
         with SyncSession() as session:
-            _get_athlete(athlete_id, session=session)  # Existenz prüfen
+            athlete = _get_athlete(athlete_id, session=session)
+            _verify_ownership(athlete, current_user)
 
             # Duplikat-Prüfung: gleiches Workout am gleichen Tag?
             existing = session.execute(
@@ -569,10 +596,11 @@ class AthleteController(Controller):
             )
 
     @get("/{athlete_id:int}/history", sync_to_thread=True)
-    def get_history(self, athlete_id: int) -> dict:
+    def get_history(self, athlete_id: int, current_user: User) -> dict:
         """Trainingshistorie: Workouts, Rennen, Pace-Verlauf."""
         with SyncSession() as session:
-            _get_athlete(athlete_id, session=session)
+            athlete = _get_athlete(athlete_id, session=session)
+            _verify_ownership(athlete, current_user)
 
             # Letzte 30 Workouts
             workouts_q = session.execute(
@@ -628,7 +656,7 @@ class AthleteController(Controller):
         }
 
     @post("/{athlete_id:int}/week", sync_to_thread=True)
-    def generate_week(self, athlete_id: int, request: Request) -> WeeklyPlan:
+    def generate_week(self, athlete_id: int, current_user: User, request: Request) -> WeeklyPlan:
         """Wochenplan aus DB-Profil generieren.
 
         Liest Profil, letzte Workouts und Pace-History automatisch aus der DB.
@@ -646,6 +674,7 @@ class AthleteController(Controller):
             db_started = time.perf_counter()
             with SyncSession() as session:
                 athlete = _get_athlete(athlete_id, session=session)
+                _verify_ownership(athlete, current_user)
                 last_week = _get_last_week_workouts(athlete_id, session=session)
                 days_since_hard = _days_since_last_hard_workout(athlete_id, session=session)
                 inp = WeekPlanInput(

@@ -91,7 +91,7 @@ engine = create_engine(
     pool_pre_ping=True,
     connect_args=DATABASE_CONNECT_ARGS,
 )
-SyncSession = sessionmaker(engine, expire_on_commit=False, expire_on_close=False)
+SyncSession = sessionmaker(engine, expire_on_commit=False)
 
 
 class Base(DeclarativeBase):

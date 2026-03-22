@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 
-from litestar.connection import ASGIConnection
+from litestar import Request
 from litestar.exceptions import NotAuthorizedException
 from sqlalchemy import select
 
@@ -15,9 +15,9 @@ from app.database import SyncSession
 LOGGER = logging.getLogger(__name__)
 
 
-def provide_current_user(connection: ASGIConnection) -> User:
+def provide_current_user(request: Request) -> User:
     """Litestar Dependency: Extrahiert und validiert JWT aus Authorization Header."""
-    auth_header = connection.headers.get("authorization", "")
+    auth_header = request.headers.get("authorization", "")
     if not auth_header.startswith("Bearer "):
         raise NotAuthorizedException("Fehlender oder ungültiger Authorization Header")
 

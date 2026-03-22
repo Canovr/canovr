@@ -135,8 +135,16 @@ class AuthController(Controller):
         """Email-Registrierung: Neuen Account anlegen."""
         password_hash = _hash_password(data.password)
 
+        # Name robust validieren, damit kein 500 bei leerem/whitespace-only Input entsteht.
+        normalized_name = data.name.strip()
+        if not normalized_name:
+            raise ClientException(
+                detail="Name darf nicht leer sein.",
+                status_code=400,
+            )
+
         # Name aufteilen (falls Leerzeichen enthalten)
-        name_parts = data.name.strip().split(maxsplit=1)
+        name_parts = normalized_name.split(maxsplit=1)
         first_name = name_parts[0]
         last_name = name_parts[1] if len(name_parts) > 1 else ""
 

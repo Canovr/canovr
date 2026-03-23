@@ -186,14 +186,16 @@ class AuthController(Controller):
                 select(User).where(User.email == data.email.lower().strip())
             ).scalar_one_or_none()
 
-        if not user or not user.password_hash:
-            raise NotAuthorizedException("Ungültige Email oder Passwort")
+            if not user or not user.password_hash:
+                raise NotAuthorizedException("Ungültige Email oder Passwort")
 
-        if not _verify_password(data.password, user.password_hash):
-            raise NotAuthorizedException("Ungültige Email oder Passwort")
+            if not _verify_password(data.password, user.password_hash):
+                raise NotAuthorizedException("Ungültige Email oder Passwort")
 
-        needs_onboarding = _user_needs_onboarding(user)
-        access_token, refresh_token = _issue_tokens(user.id)
+            needs_onboarding = _user_needs_onboarding(user)
+            user_id = user.id
+
+        access_token, refresh_token = _issue_tokens(user_id)
 
         return AuthResponse(
             access_token=access_token,

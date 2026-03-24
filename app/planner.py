@@ -457,19 +457,19 @@ def generate_week_plan(inp: WeekPlanInput, inference: InferenceResult) -> Weekly
     all_zones = compute_all_zones(rp)
     dist_volumes = DISTANCE_VOLUME.get(inp.target_distance, {})
 
-    # PyReason-basierte Empfehlungen
+    # Empfehlungen
     if inference.needs_recovery:
-        recommendations.append("PyReason R10: Erholung nötig — keine zusätzliche harte Einheit eingeplant.")
+        recommendations.append("Erholung nötig — keine zusätzliche harte Einheit eingeplant.")
     if inference.extra_recovery_needed:
-        recommendations.append("PyReason R12: Anfänger + erschöpft — lieber Workout streichen.")
+        recommendations.append("Anfänger + erschöpft — lieber Workout streichen.")
     if inference.prefer_strides_over_speed:
-        recommendations.append("PyReason R22: Bei niedrigem Volumen Strides statt Speed-Session.")
+        recommendations.append("Bei niedrigem Volumen Strides statt Speed-Session.")
     if inference.ready_for_next:
-        recommendations.append("PyReason R27/R28: Bereit für nächste Trainingsphase.")
+        recommendations.append("Bereit für nächste Trainingsphase.")
     if inference.ready_for_taper:
-        recommendations.append("PyReason R29: Taper einleiten — Volumen senken, Intensität erhalten.")
+        recommendations.append("Taper einleiten — Volumen senken, Intensität erhalten.")
     if inference.conservative:
-        recommendations.append("PyReason R23: Intro-Phase — Volumen konservativ halten.")
+        recommendations.append("Intro-Phase — Volumen konservativ halten.")
     if inference.in_taper_mode:
         vol_pct = int(inference.taper_volume_factor * 100)
         recommendations.append(
@@ -477,11 +477,11 @@ def generate_week_plan(inp: WeekPlanInput, inference: InferenceResult) -> Weekly
             "Intensität erhalten, Volumen senken."
         )
     if inference.taper_shake_out_only:
-        recommendations.append("PyReason R45: Race-Woche — nur Shake-out oder Ruhe.")
+        recommendations.append("Race-Woche — nur Shake-out oder Ruhe.")
     if inference.taper_easy_only:
-        recommendations.append("PyReason R43: Late Taper — nur lockere Läufe + Strides.")
+        recommendations.append("Late Taper — nur lockere Läufe + Strides.")
     if inference.block_progression:
-        recommendations.append("PyReason R47: Taper — keine Progression, nur erhalten.")
+        recommendations.append("Taper — keine Progression, nur erhalten.")
 
     # Auswahl + Platzierung
     quality, long_run_key, select_trace = select_workouts(inference, inp)

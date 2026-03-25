@@ -312,17 +312,6 @@ class AthleteController(Controller):
         if data.target_distance not in DISTANCES:
             raise ValueError(f"Unbekannte Distanz: {data.target_distance}")
 
-        # Prüfe ob User bereits einen Athleten hat
-        with SyncSession() as session:
-            existing = session.execute(
-                select(AthleteDB).where(AthleteDB.user_id == current_user.id)
-            ).scalar_one_or_none()
-            if existing:
-                raise ClientException(
-                    detail="User hat bereits ein Athletenprofil.",
-                    status_code=409,
-                )
-
         request_id = _request_id_from_request(request)
         idempotency_key = _idempotency_key_from_request(request)
         idempotency_key_hint = idempotency_key[:8] if idempotency_key else "none"
@@ -335,6 +324,8 @@ class AthleteController(Controller):
         )
 
         with SyncSession() as session:
+            # Idempotency-Replay VOR der Duplikat-Prüfung, da beim Replay
+            # der User bereits ein Profil hat.
             if idempotency_key:
                 replay = session.execute(
                     select(AthleteDB).where(AthleteDB.client_request_id == idempotency_key)
@@ -353,6 +344,16 @@ class AthleteController(Controller):
                         status_code=200,
                         headers={"X-Idempotency-Replayed": "true"},
                     )
+
+            # Prüfe ob User bereits einen Athleten hat
+            existing = session.execute(
+                select(AthleteDB).where(AthleteDB.user_id == current_user.id)
+            ).scalar_one_or_none()
+            if existing:
+                raise ClientException(
+                    detail="User hat bereits ein Athletenprofil.",
+                    status_code=409,
+                )
 
             athlete = AthleteDB(
                 user_id=current_user.id,

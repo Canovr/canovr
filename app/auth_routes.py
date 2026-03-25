@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from typing import Annotated
 
 import bcrypt
-from litestar import Controller, get, post
+from litestar import Controller, delete, get, post
 from litestar.exceptions import ClientException, NotAuthorizedException
 from litestar.params import Body
 from sqlalchemy import select
@@ -28,7 +28,14 @@ from app.auth_models import (
     User,
 )
 from app.auth_models import RefreshToken as RefreshTokenDB
-from app.database import SyncSession
+from app.database import (
+    Athlete,
+    CompletedWorkout,
+    PaceHistory,
+    RaceResult,
+    SyncSession,
+    WeekPlan,
+)
 from app.strava_service import exchange_code
 
 LOGGER = logging.getLogger(__name__)
@@ -269,3 +276,58 @@ class AuthController(Controller):
             "auth_provider": current_user.auth_provider,
             "has_athlete": current_user.athlete is not None,
         }
+
+    @delete("/me", status_code=200)
+    async def delete_account(self, current_user: User) -> dict[str, str]:
+        """Account und alle zugehörigen Daten unwiderruflich löschen."""
+        user_id = current_user.id
+        LOGGER.info("account.delete.start user_id=%s", user_id)
+
+        with SyncSession() as session:
+            # Athlete und abhängige Daten löschen
+            athlete = session.execute(
+                select(Athlete).where(Athlete.user_id == user_id)
+            ).scalar_one_or_none()
+
+            if athlete:
+                athlete_id = athlete.id
+                # Reihenfolge: abhängige Tabellen zuerst
+                session.execute(
+                    CompletedWorkout.__table__.delete().where(
+                        CompletedWorkout.athlete_id == athlete_id
+                    )
+                )
+                session.execute(
+                    RaceResult.__table__.delete().where(
+                        RaceResult.athlete_id == athlete_id
+                    )
+                )
+                session.execute(
+                    WeekPlan.__table__.delete().where(
+                        WeekPlan.athlete_id == athlete_id
+                    )
+                )
+                session.execute(
+                    PaceHistory.__table__.delete().where(
+                        PaceHistory.athlete_id == athlete_id
+                    )
+                )
+                session.delete(athlete)
+
+            # Refresh Tokens löschen
+            session.execute(
+                RefreshTokenDB.__table__.delete().where(
+                    RefreshTokenDB.user_id == user_id
+                )
+            )
+
+            # User löschen
+            user = session.execute(
+                select(User).where(User.id == user_id)
+            ).scalar_one()
+            session.delete(user)
+
+            session.commit()
+
+        LOGGER.info("account.delete.success user_id=%s", user_id)
+        return {"status": "deleted"}

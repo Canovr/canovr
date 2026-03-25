@@ -141,6 +141,80 @@ async def strava_callback() -> str:
     return STRAVA_CALLBACK_HTML
 
 
+PRIVACY_POLICY_HTML = """<!DOCTYPE html>
+<html lang="de"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Datenschutzerklärung — CanovR</title>
+<style>body{font-family:system-ui,sans-serif;max-width:700px;margin:0 auto;padding:24px;color:#1a1a1a;line-height:1.6}
+h1{font-size:1.4em}h2{font-size:1.1em;margin-top:2em}a{color:#2563eb}</style></head>
+<body>
+<h1>Datenschutzerklärung</h1>
+<p><strong>CanovR</strong> — App für Lauftrainingsplanung<br>
+Stand: März 2026</p>
+
+<h2>1. Verantwortlicher</h2>
+<p>Raphael Feikert<br>Robert-Bosch-Straße 7<br>64293 Darmstadt<br>
+E-Mail: <a href="mailto:info@canovr.com">info@canovr.com</a></p>
+
+<h2>2. Welche Daten wir erheben</h2>
+<ul>
+<li><strong>Account-Daten:</strong> E-Mail-Adresse und Name (bei E-Mail-Registrierung) oder Strava-Profildaten (Vorname, Nachname, Strava-ID) bei Strava-Anmeldung.</li>
+<li><strong>Trainingsdaten:</strong> Zieldistanz, Wettkampfzeit, Wochenkilometer, Erfahrungsjahre, Trainingsphase, absolvierte Workouts, Rennergebnisse und Pace-Verlauf.</li>
+<li><strong>Technische Daten:</strong> IP-Adresse, Request-IDs und Zeitstempel zur Fehleranalyse (Server-Logs).</li>
+</ul>
+
+<h2>3. Zweck der Verarbeitung</h2>
+<p>Wir verarbeiten deine Daten ausschließlich zur Bereitstellung der Trainingspläne und Funktionen der App (Art. 6 Abs. 1 lit. b DSGVO — Vertragserfüllung).</p>
+
+<h2>4. Strava-Integration</h2>
+<p>Bei Anmeldung über Strava erhalten wir einen OAuth-Token und dein Strava-Profil (Vorname, Nachname, Strava-ID). Wir greifen nicht auf deine Strava-Aktivitäten zu. Du kannst den Zugriff jederzeit in deinen <a href="https://www.strava.com/settings/apps">Strava-Einstellungen</a> widerrufen.</p>
+
+<h2>5. Speicherung und Hosting</h2>
+<p>Daten werden auf Servern von Google Cloud (Region Europa) gespeichert. Die Datenbank wird bei Turso (libSQL) gehostet. Alle Verbindungen sind TLS-verschlüsselt.</p>
+
+<h2>6. Weitergabe an Dritte</h2>
+<p>Wir geben keine personenbezogenen Daten an Dritte weiter, außer an die technischen Dienstleister (Google Cloud, Turso), die als Auftragsverarbeiter agieren.</p>
+
+<h2>7. Deine Rechte</h2>
+<p>Du hast das Recht auf Auskunft, Berichtigung, Löschung, Einschränkung der Verarbeitung, Datenübertragbarkeit und Widerspruch. Kontaktiere uns unter <a href="mailto:info@canovr.com">info@canovr.com</a>.</p>
+
+<h2>8. Account-Löschung</h2>
+<p>Du kannst deinen Account jederzeit in der App unter Profil &gt; „Account löschen" unwiderruflich löschen. Dabei werden alle deine Daten (Account, Trainingsdaten, Rennergebnisse) vollständig entfernt.</p>
+
+<h2>9. Cookies und Tracking</h2>
+<p>Die App und das Backend verwenden keine Cookies, kein Tracking und keine Analyse-Tools.</p>
+
+<h2>10. Änderungen</h2>
+<p>Bei wesentlichen Änderungen dieser Datenschutzerklärung informieren wir dich über die App.</p>
+</body></html>"""
+
+IMPRESSUM_HTML = """<!DOCTYPE html>
+<html lang="de"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Impressum — CanovR</title>
+<style>body{font-family:system-ui,sans-serif;max-width:700px;margin:0 auto;padding:24px;color:#1a1a1a;line-height:1.6}
+h1{font-size:1.4em}h2{font-size:1.1em;margin-top:2em}a{color:#2563eb}</style></head>
+<body>
+<h1>Impressum</h1>
+<h2>Angaben gemäß § 5 TMG</h2>
+<p>Raphael Feikert<br>Robert-Bosch-Straße 7<br>64293 Darmstadt</p>
+<h2>Kontakt</h2>
+<p>E-Mail: <a href="mailto:info@canovr.com">info@canovr.com</a></p>
+<h2>Verantwortlich für den Inhalt nach § 55 Abs. 2 RStV</h2>
+<p>Raphael Feikert<br>Robert-Bosch-Straße 7<br>64293 Darmstadt</p>
+</body></html>"""
+
+
+@get("/privacy", media_type=MediaType.HTML, exclude_from_auth=True)
+async def privacy_policy() -> str:
+    """Datenschutzerklärung."""
+    return PRIVACY_POLICY_HTML
+
+
+@get("/impressum", media_type=MediaType.HTML, exclude_from_auth=True)
+async def impressum() -> str:
+    """Impressum (§ 5 TMG)."""
+    return IMPRESSUM_HTML
+
+
 def _warmup_pyreason() -> None:
     """Background-Warmup: JIT-kompiliert PyReason ohne Startup zu blockieren."""
     try:
@@ -169,6 +243,8 @@ app = Litestar(
         index,
         apple_app_site_association,
         strava_callback,
+        privacy_policy,
+        impressum,
         AuthController,
         TrainingController,
         AthleteController,

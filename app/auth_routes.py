@@ -25,6 +25,7 @@ from app.auth_models import (
     RefreshTokenRequest,
     StravaAuthRequest,
     StravaProfile,
+    StravaStateResponse,
     User,
 )
 from app.auth_models import RefreshToken as RefreshTokenDB
@@ -36,6 +37,7 @@ from app.database import (
     SyncSession,
     WeekPlan,
 )
+from app.oauth_state import create_strava_oauth_state, verify_strava_oauth_state
 from app.strava_service import exchange_code
 
 LOGGER = logging.getLogger(__name__)
@@ -74,12 +76,26 @@ class AuthController(Controller):
     path = "/api/auth"
     tags = ["Auth"]
 
+    @get("/strava/state")
+    async def strava_state(self) -> StravaStateResponse:
+        """Erzeugt einen signierten OAuth-State fuer den Strava Login."""
+        state, expires_at = create_strava_oauth_state()
+        return StravaStateResponse(state=state, expires_at=expires_at)
+
     @post("/strava")
     async def strava_auth(
         self,
         data: Annotated[StravaAuthRequest, Body()],
     ) -> AuthResponse:
         """Strava OAuth: Code gegen JWT tauschen."""
+        try:
+            verify_strava_oauth_state(data.state)
+        except ValueError as exc:
+            raise ClientException(
+                detail=f"Ungueltiger OAuth-State: {exc}",
+                status_code=400,
+            )
+
         try:
             strava_result = await exchange_code(data.code)
         except Exception as exc:
@@ -96,10 +112,12 @@ class AuthController(Controller):
             ).scalar_one_or_none()
 
             if user:
-                # Token aktualisieren
-                user.strava_access_token = strava_result.access_token
-                user.strava_refresh_token = strava_result.refresh_token
-                user.strava_token_expires_at = strava_result.expires_at
+                # Security-Policy: Strava Tokens werden nicht persistiert.
+                user.strava_access_token = None
+                user.strava_refresh_token = None
+                user.strava_token_expires_at = None
+                user.first_name = strava_result.first_name or user.first_name
+                user.last_name = strava_result.last_name or user.last_name
                 session.commit()
                 session.refresh(user)
             else:
@@ -108,9 +126,9 @@ class AuthController(Controller):
                     strava_id=strava_result.strava_athlete_id,
                     first_name=strava_result.first_name,
                     last_name=strava_result.last_name,
-                    strava_access_token=strava_result.access_token,
-                    strava_refresh_token=strava_result.refresh_token,
-                    strava_token_expires_at=strava_result.expires_at,
+                    strava_access_token=None,
+                    strava_refresh_token=None,
+                    strava_token_expires_at=None,
                     auth_provider="strava",
                 )
                 session.add(user)
@@ -229,7 +247,10 @@ class AuthController(Controller):
             if db_token.revoked_at is not None:
                 raise NotAuthorizedException("Refresh Token wurde widerrufen")
 
-            if db_token.expires_at < datetime.now(timezone.utc):
+            expires_at = db_token.expires_at
+            if expires_at.tzinfo is None:
+                expires_at = expires_at.replace(tzinfo=timezone.utc)
+            if expires_at < datetime.now(timezone.utc):
                 raise NotAuthorizedException("Refresh Token abgelaufen")
 
             # Altes Token revoken (Rotation)
@@ -268,13 +289,19 @@ class AuthController(Controller):
     @get("/me")
     async def me(self, current_user: User) -> dict:
         """Aktueller User-Info (auth required)."""
+        with SyncSession() as session:
+            athlete_id = session.execute(
+                select(Athlete.id).where(Athlete.user_id == current_user.id)
+            ).scalar_one_or_none()
+
         return {
             "id": current_user.id,
             "email": current_user.email,
             "first_name": current_user.first_name,
             "last_name": current_user.last_name,
             "auth_provider": current_user.auth_provider,
-            "has_athlete": current_user.athlete is not None,
+            "has_athlete": athlete_id is not None,
+            "athlete_id": athlete_id,
         }
 
     @delete("/me", status_code=200)

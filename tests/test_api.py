@@ -109,7 +109,7 @@ class TestRecommendEndpoint:
             "current_phase": "supportive",
             "days_since_hard_workout": 3,
         }, headers=auth_headers)
-        assert r.status_code in (400, 500)
+        assert r.status_code == 400
 
 
 class TestWeekEndpoint:
@@ -179,6 +179,28 @@ class TestPaceUpdateEndpoint:
 
 
 class TestAthleteEndpoints:
+    def test_create_athlete_with_invalid_distance_returns_400(self, client, auth_headers):
+        r = client.post("/api/athletes", json={
+            "name": "Invalid Distance",
+            "target_distance": "ultra",
+            "race_time_seconds": 2400,
+            "weekly_km": 80,
+            "experience_years": 5,
+            "current_phase": "supportive",
+        }, headers=auth_headers)
+        assert r.status_code == 400
+
+    def test_create_athlete_with_invalid_phase_returns_400(self, client, auth_headers):
+        r = client.post("/api/athletes", json={
+            "name": "Invalid Phase",
+            "target_distance": "10k",
+            "race_time_seconds": 2400,
+            "weekly_km": 80,
+            "experience_years": 5,
+            "current_phase": "invalid",
+        }, headers=auth_headers)
+        assert r.status_code == 400
+
     def test_create_and_get_athlete(self, client, auth_headers):
         r = client.post("/api/athletes", json={
             "name": "Test Läufer",

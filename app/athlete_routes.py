@@ -37,6 +37,7 @@ from app.planner import generate_week_plan
 from app.reasoner import run_pace_update_inference, run_week_inference
 
 LOGGER = logging.getLogger(__name__)
+VALID_PHASES = {"general", "supportive", "specific"}
 
 
 # =========================================================================
@@ -196,6 +197,22 @@ def _verify_ownership(athlete: AthleteDB, current_user: User) -> None:
         raise NotFoundException(detail="Athlet nicht gefunden")
 
 
+def _validate_distance(distance: str) -> None:
+    if distance not in DISTANCES:
+        raise ClientException(
+            detail=f"Unbekannte Distanz. Gültig: {', '.join(DISTANCES.keys())}",
+            status_code=400,
+        )
+
+
+def _validate_phase(phase: str) -> None:
+    if phase not in VALID_PHASES:
+        raise ClientException(
+            detail="Phase muss 'general', 'supportive' oder 'specific' sein",
+            status_code=400,
+        )
+
+
 def _get_athlete(athlete_id: int, session: Session | None = None) -> AthleteDB:
     if session is not None:
         result = session.execute(select(AthleteDB).where(AthleteDB.id == athlete_id))
@@ -309,8 +326,8 @@ class AthleteController(Controller):
         )])],
     ) -> AthleteResponse | Response[AthleteResponse]:
         """Neuen Athleten anlegen."""
-        if data.target_distance not in DISTANCES:
-            raise ValueError(f"Unbekannte Distanz: {data.target_distance}")
+        _validate_distance(data.target_distance)
+        _validate_phase(data.current_phase)
 
         request_id = _request_id_from_request(request)
         idempotency_key = _idempotency_key_from_request(request)
@@ -458,6 +475,11 @@ class AthleteController(Controller):
                 raise NotFoundException(detail=f"Athlet {athlete_id} nicht gefunden")
             _verify_ownership(athlete, current_user)
 
+            if data.target_distance is not None:
+                _validate_distance(data.target_distance)
+            if data.current_phase is not None:
+                _validate_phase(data.current_phase)
+
             for field, value in data.model_dump(exclude_unset=True).items():
                 setattr(athlete, field, value)
 
@@ -481,6 +503,8 @@ class AthleteController(Controller):
         )])],
     ) -> RaceResultResponse:
         """Rennergebnis eintragen + automatisches Pace-Update."""
+        _validate_distance(data.distance)
+
         with SyncSession() as session:
             athlete = _get_athlete(athlete_id, session=session)
             _verify_ownership(athlete, current_user)

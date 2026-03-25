@@ -1,4 +1,13 @@
 steps:
+  - id: run-tests
+    name: python:3.10-slim
+    entrypoint: bash
+    args:
+      - -ceu
+      - |
+        python -m pip install --no-cache-dir -r requirements.txt pytest
+        pytest -q
+
   - name: gcr.io/cloud-builders/docker
     args:
       - build

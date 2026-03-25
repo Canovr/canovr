@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Annotated
 
 from litestar import Controller, get, post
+from litestar.exceptions import ClientException
 from litestar.openapi.spec import Example
 from litestar.params import Body
 
@@ -59,9 +60,15 @@ class TrainingController(Controller):
     ) -> TrainingRecommendation:
         """Trainingsempfehlung via PyReason-Inferenz."""
         if data.target_distance not in DISTANCES:
-            raise ValueError(f"Unbekannte Distanz. Gültig: {', '.join(DISTANCES.keys())}")
+            raise ClientException(
+                detail=f"Unbekannte Distanz. Gültig: {', '.join(DISTANCES.keys())}",
+                status_code=400,
+            )
         if data.current_phase not in ("general", "supportive", "specific"):
-            raise ValueError("Phase muss 'general', 'supportive' oder 'specific' sein")
+            raise ClientException(
+                detail="Phase muss 'general', 'supportive' oder 'specific' sein",
+                status_code=400,
+            )
 
         rp = race_pace_per_km(data.target_distance, data.race_time_seconds)
         all_zones = compute_all_zones(rp)
@@ -151,9 +158,15 @@ class TrainingController(Controller):
         from app.planner import generate_week_plan
 
         if data.target_distance not in DISTANCES:
-            raise ValueError(f"Unbekannte Distanz. Gültig: {', '.join(DISTANCES.keys())}")
+            raise ClientException(
+                detail=f"Unbekannte Distanz. Gültig: {', '.join(DISTANCES.keys())}",
+                status_code=400,
+            )
         if data.current_phase not in ("general", "supportive", "specific"):
-            raise ValueError("Phase muss 'general', 'supportive' oder 'specific' sein")
+            raise ClientException(
+                detail="Phase muss 'general', 'supportive' oder 'specific' sein",
+                status_code=400,
+            )
 
         inference = run_week_inference(data)
         return generate_week_plan(data, inference)
@@ -182,7 +195,10 @@ class TrainingController(Controller):
         Berechnet neue Paces, empfiehlt Strategie, warnt bei Anomalien.
         """
         if data.target_distance not in DISTANCES:
-            raise ValueError(f"Unbekannte Distanz. Gültig: {', '.join(DISTANCES.keys())}")
+            raise ClientException(
+                detail=f"Unbekannte Distanz. Gültig: {', '.join(DISTANCES.keys())}",
+                status_code=400,
+            )
 
         # PyReason-Inferenz für Strategie + Warnungen
         inference = run_pace_update_inference(data)

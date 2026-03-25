@@ -11,9 +11,16 @@
 - Production (verbindlich):
 - `TURSO_DATABASE_URL`
 - `TURSO_AUTH_TOKEN`
+- `CANOVR_JWT_SECRET`
+- `STRAVA_CLIENT_ID`
+- `STRAVA_CLIENT_SECRET`
 - Lokal (optional):
 - `CANOVR_DB_PATH`
 - `CANOVR_AUTO_CREATE_SCHEMA` (`true|false`, default `true`)
+- `CANOVR_DEBUG` (`true|false`, default `false`)
+- `CANOVR_OAUTH_STATE_SECRET` (optional, fallback auf `CANOVR_JWT_SECRET`)
+- `CANOVR_APPLE_TEAM_ID` (default `M944LR67TZ`)
+- `CANOVR_IOS_BUNDLE_ID` (default `com.canovr.app`)
 
 ## 1) Base-Image (bei Dependency-Änderungen)
 
@@ -74,9 +81,10 @@ gcloud run deploy canovr \
 
 ## Standard-Reihenfolge
 
-1. Build Image
-2. Migration Job ausführen
-3. Service deployen
+1. Tests (werden in Cloud Build automatisch vor dem Build ausgefuehrt)
+2. Build Image
+3. Migration Job ausführen
+4. Service deployen
 
 ## Post-Deploy Check (30-60 Minuten)
 

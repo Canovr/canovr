@@ -54,6 +54,7 @@ class RefreshToken(Base):
 
 class StravaAuthRequest(BaseModel):
     code: str
+    state: str = Field(min_length=16, max_length=2048)
 
 
 class EmailRegisterRequest(BaseModel):
@@ -81,3 +82,8 @@ class AuthResponse(BaseModel):
     refresh_token: str
     needs_onboarding: bool
     strava_profile: StravaProfile | None = None
+
+
+class StravaStateResponse(BaseModel):
+    state: str
+    expires_at: dt.datetime

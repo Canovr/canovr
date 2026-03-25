@@ -7,6 +7,7 @@ Full-Spectrum Percentage-Based Trainingsmethode nach John Davis.
 from __future__ import annotations
 
 import logging
+import os
 import threading
 import time
 import uuid
@@ -30,6 +31,18 @@ from app.database import init_db
 from app.routes import TrainingController
 
 LOGGER = logging.getLogger(__name__)
+
+
+def _parse_bool(value: str | None, default: bool = False) -> bool:
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _ios_app_id() -> str:
+    team_id = os.environ.get("CANOVR_APPLE_TEAM_ID", "M944LR67TZ").strip()
+    bundle_id = os.environ.get("CANOVR_IOS_BUNDLE_ID", "com.canovr.app").strip()
+    return f"{team_id}.{bundle_id}"
 
 
 class RequestLoggingMiddleware:
@@ -111,7 +124,7 @@ AASA_RESPONSE = {
         "apps": [],
         "details": [
             {
-                "appID": "TEAMID.com.canovr.app",
+                "appID": _ios_app_id(),
                 "paths": ["/auth/strava/callback"],
             }
         ],
@@ -166,10 +179,10 @@ E-Mail: <a href="mailto:info@canovr.com">info@canovr.com</a></p>
 <p>Wir verarbeiten deine Daten ausschließlich zur Bereitstellung der Trainingspläne und Funktionen der App (Art. 6 Abs. 1 lit. b DSGVO — Vertragserfüllung).</p>
 
 <h2>4. Strava-Integration</h2>
-<p>Bei Anmeldung über Strava erhalten wir einen OAuth-Token und dein Strava-Profil (Vorname, Nachname, Strava-ID). Wir greifen nicht auf deine Strava-Aktivitäten zu. Du kannst den Zugriff jederzeit in deinen <a href="https://www.strava.com/settings/apps">Strava-Einstellungen</a> widerrufen.</p>
+<p>Bei Anmeldung über Strava verarbeiten wir dein Strava-Profil (Vorname, Nachname, Strava-ID) und einen kurzlebigen OAuth-Code zur Authentifizierung. Wir speichern keine dauerhaften Strava Access- oder Refresh-Tokens in unserer Datenbank und greifen nicht auf deine Strava-Aktivitäten zu. Du kannst den Zugriff jederzeit in deinen <a href="https://www.strava.com/settings/apps">Strava-Einstellungen</a> widerrufen.</p>
 
 <h2>5. Speicherung und Hosting</h2>
-<p>Daten werden auf Servern von Google Cloud (Region Europa) gespeichert. Die Datenbank wird bei Turso (libSQL) gehostet. Alle Verbindungen sind TLS-verschlüsselt.</p>
+<p>Daten werden auf Servern von Google Cloud Run (Region us-central1) gespeichert. Die Datenbank wird bei Turso (libSQL) gehostet. Alle Verbindungen sind TLS-verschlüsselt.</p>
 
 <h2>6. Weitergabe an Dritte</h2>
 <p>Wir geben keine personenbezogenen Daten an Dritte weiter, außer an die technischen Dienstleister (Google Cloud, Turso), die als Auftragsverarbeiter agieren.</p>
@@ -252,7 +265,7 @@ app = Litestar(
     dependencies={"current_user": Provide(provide_current_user, sync_to_thread=True)},
     middleware=[DefineMiddleware(RequestLoggingMiddleware)],
     on_startup=[on_startup],
-    debug=True,
+    debug=_parse_bool(os.environ.get("CANOVR_DEBUG"), default=False),
     openapi_config=OpenAPIConfig(
         title="CanovR",
         version="0.2.0",

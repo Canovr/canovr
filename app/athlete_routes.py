@@ -24,6 +24,7 @@ from sqlalchemy.orm import Session
 
 from app.auth_models import User
 from app.database import CompletedWorkout, PaceHistory, RaceResult, SyncSession
+from app.database import WeekPlan as WeekPlanDB
 from app.database import Athlete as AthleteDB
 from app.knowledge import WORKOUT_TEMPLATES
 from app.models import (
@@ -295,6 +296,46 @@ def _days_since_last_pace_update(athlete_id: int, session: Session | None = None
         return _days_since_last_pace_update(athlete_id, session=own_session)
 
 
+def _invalidate_week_plan(athlete_id: int, session: Session) -> None:
+    """Markiert Wochenplan als veraltet, indem persistierte Pläne gelöscht werden."""
+    session.execute(
+        WeekPlanDB.__table__.delete().where(WeekPlanDB.athlete_id == athlete_id)
+    )
+
+
+def _load_persisted_week_plan(athlete_id: int, session: Session) -> WeeklyPlan | None:
+    """Lädt den aktuell gespeicherten Wochenplan (falls vorhanden und valide)."""
+    stored = session.execute(
+        select(WeekPlanDB)
+        .where(WeekPlanDB.athlete_id == athlete_id)
+        .order_by(WeekPlanDB.created_at.desc())
+        .limit(1)
+    ).scalar_one_or_none()
+
+    if stored is None:
+        return None
+
+    try:
+        return WeeklyPlan.model_validate_json(stored.plan_json)
+    except Exception:  # noqa: BLE001
+        # Defekter Persistenzdatensatz wird verworfen und anschließend neu berechnet.
+        _invalidate_week_plan(athlete_id, session=session)
+        return None
+
+
+def _store_week_plan(athlete_id: int, plan: WeeklyPlan, session: Session) -> None:
+    """Speichert genau einen aktuellen Wochenplan pro Athlet."""
+    _invalidate_week_plan(athlete_id, session=session)
+    session.add(
+        WeekPlanDB(
+            athlete_id=athlete_id,
+            phase=plan.phase,
+            week_in_phase=plan.week_in_phase,
+            plan_json=plan.model_dump_json(),
+        )
+    )
+
+
 # =========================================================================
 #  CONTROLLER
 # =========================================================================
@@ -483,6 +524,7 @@ class AthleteController(Controller):
             for field, value in data.model_dump(exclude_unset=True).items():
                 setattr(athlete, field, value)
 
+            _invalidate_week_plan(athlete_id, session=session)
             session.commit()
             session.refresh(athlete)
             return _athlete_to_response(athlete)
@@ -556,6 +598,7 @@ class AthleteController(Controller):
                 db_athlete = result.scalar_one()
                 db_athlete.race_time_seconds = new_time
 
+            _invalidate_week_plan(athlete_id, session=session)
             session.commit()
 
             pace = seconds_to_display(data.time_seconds / DISTANCES.get(data.distance, 1))
@@ -610,6 +653,7 @@ class AthleteController(Controller):
                 notes=data.notes,
             )
             session.add(workout)
+            _invalidate_week_plan(athlete_id, session=session)
             session.commit()
             session.refresh(workout)
 
@@ -681,7 +725,12 @@ class AthleteController(Controller):
         }
 
     @post("/{athlete_id:int}/week", sync_to_thread=True)
-    def generate_week(self, athlete_id: int, current_user: User, request: Request) -> WeeklyPlan:
+    def generate_week(
+        self,
+        athlete_id: int,
+        current_user: User,
+        request: Request,
+    ) -> WeeklyPlan | Response[WeeklyPlan]:
         """Wochenplan aus DB-Profil generieren.
 
         Liest Profil, letzte Workouts und Pace-History automatisch aus der DB.
@@ -700,6 +749,20 @@ class AthleteController(Controller):
             with SyncSession() as session:
                 athlete = _get_athlete(athlete_id, session=session)
                 _verify_ownership(athlete, current_user)
+
+                persisted = _load_persisted_week_plan(athlete_id, session=session)
+                if persisted is not None:
+                    db_ms = (time.perf_counter() - db_started) * 1000
+                    total_ms = (time.perf_counter() - total_started) * 1000
+                    LOGGER.info(
+                        "week.generate.cache_hit request_id=%s athlete_id=%s db_ms=%.2f duration_ms=%.2f",
+                        request_id,
+                        athlete_id,
+                        db_ms,
+                        total_ms,
+                    )
+                    return Response(content=persisted, status_code=200)
+
                 last_week = _get_last_week_workouts(athlete_id, session=session)
                 days_since_hard = _days_since_last_hard_workout(athlete_id, session=session)
                 inp = WeekPlanInput(
@@ -726,17 +789,24 @@ class AthleteController(Controller):
             plan = generate_week_plan(inp, inference)
             planner_ms = (time.perf_counter() - planner_started) * 1000
 
+            persist_started = time.perf_counter()
+            with SyncSession() as session:
+                _store_week_plan(athlete_id, plan, session=session)
+                session.commit()
+            persist_ms = (time.perf_counter() - persist_started) * 1000
+
             total_ms = (time.perf_counter() - total_started) * 1000
             LOGGER.info(
-                "week.generate.success request_id=%s athlete_id=%s db_ms=%.2f inference_ms=%.2f planner_ms=%.2f duration_ms=%.2f",
+                "week.generate.success request_id=%s athlete_id=%s db_ms=%.2f inference_ms=%.2f planner_ms=%.2f persist_ms=%.2f duration_ms=%.2f",
                 request_id,
                 athlete_id,
                 db_ms,
                 inference_ms,
                 planner_ms,
+                persist_ms,
                 total_ms,
             )
-            return plan
+            return Response(content=plan, status_code=201)
         except Exception as exc:  # noqa: BLE001
             total_ms = (time.perf_counter() - total_started) * 1000
             LOGGER.exception(

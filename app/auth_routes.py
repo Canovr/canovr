@@ -11,7 +11,7 @@ from litestar import Controller, delete, get, post
 from litestar.exceptions import ClientException, NotAuthorizedException
 from litestar.params import Body
 from sqlalchemy import select
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
 from app.auth_jwt import (
     create_access_token,
@@ -53,17 +53,24 @@ def _verify_password(password: str, hashed: str) -> bool:
 
 def _issue_tokens(user_id: int) -> tuple[str, str]:
     """Erstellt Access + Refresh Token Paar und speichert Refresh Token in DB."""
-    access_token = create_access_token(user_id)
-    raw_refresh, token_hash, expires_at = create_refresh_token(user_id)
+    try:
+        access_token = create_access_token(user_id)
+        raw_refresh, token_hash, expires_at = create_refresh_token(user_id)
 
-    with SyncSession() as session:
-        db_token = RefreshTokenDB(
-            user_id=user_id,
-            token_hash=token_hash,
-            expires_at=expires_at,
-        )
-        session.add(db_token)
-        session.commit()
+        with SyncSession() as session:
+            db_token = RefreshTokenDB(
+                user_id=user_id,
+                token_hash=token_hash,
+                expires_at=expires_at,
+            )
+            session.add(db_token)
+            session.commit()
+    except SQLAlchemyError as exc:
+        LOGGER.exception("auth.issue_tokens.db_error user_id=%s", user_id)
+        raise ClientException(
+            detail="Authentifizierung vorübergehend nicht verfügbar. Bitte erneut versuchen.",
+            status_code=503,
+        ) from exc
 
     return access_token, raw_refresh
 
@@ -158,6 +165,7 @@ class AuthController(Controller):
         data: Annotated[EmailRegisterRequest, Body()],
     ) -> AuthResponse:
         """Email-Registrierung: Neuen Account anlegen."""
+        normalized_email = data.email.lower().strip()
         password_hash = _hash_password(data.password)
 
         # Name robust validieren, damit kein 500 bei leerem/whitespace-only Input entsteht.
@@ -175,7 +183,7 @@ class AuthController(Controller):
 
         with SyncSession() as session:
             user = User(
-                email=data.email.lower().strip(),
+                email=normalized_email,
                 password_hash=password_hash,
                 first_name=first_name,
                 last_name=last_name,
@@ -185,12 +193,30 @@ class AuthController(Controller):
             try:
                 session.commit()
                 session.refresh(user)
+                user_id = user.id
             except IntegrityError:
+                session.rollback()
+                existing_user = session.execute(
+                    select(User).where(User.email == normalized_email)
+                ).scalar_one_or_none()
+                if (
+                    existing_user
+                    and existing_user.password_hash
+                    and _verify_password(data.password, existing_user.password_hash)
+                ):
+                    user_id = existing_user.id
+                else:
+                    raise ClientException(
+                        detail="Ein Account mit dieser Email existiert bereits.",
+                        status_code=409,
+                    )
+            except SQLAlchemyError as exc:
+                session.rollback()
+                LOGGER.exception("auth.register.db_error email=%s", normalized_email)
                 raise ClientException(
-                    detail="Ein Account mit dieser Email existiert bereits.",
-                    status_code=409,
-                )
-            user_id = user.id
+                    detail="Registrierung vorübergehend nicht verfügbar. Bitte erneut versuchen.",
+                    status_code=503,
+                ) from exc
 
         access_token, refresh_token = _issue_tokens(user_id)
 

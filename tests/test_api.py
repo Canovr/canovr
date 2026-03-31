@@ -19,6 +19,7 @@ from app.auth_jwt import create_access_token
 from app.auth_models import User
 from app.database import SyncSession
 from app.database import Athlete as AthleteDB
+from app.database import WeekPlan as WeekPlanDB
 from app.main import app
 
 
@@ -309,6 +310,89 @@ class TestAthleteEndpoints:
         r2 = client.post(f"/api/athletes/{aid}/week", headers=auth_headers)
         assert r2.status_code == 201
         assert len(r2.json()["days"]) == 7
+
+        r3 = client.post(f"/api/athletes/{aid}/week", headers=auth_headers)
+        assert r3.status_code == 200
+        assert r3.json() == r2.json()
+
+        with SyncSession() as session:
+            rows = session.execute(
+                select(WeekPlanDB).where(WeekPlanDB.athlete_id == aid)
+            ).scalars().all()
+        assert len(rows) == 1
+
+    def test_week_invalidated_after_profile_update(self, client, auth_headers):
+        r = client.post("/api/athletes", json={
+            "name": "Invalidate Profile", "target_distance": "10k",
+            "race_time_seconds": 2400, "weekly_km": 80,
+            "experience_years": 5, "current_phase": "supportive",
+            "week_in_phase": 4, "phase_weeks_total": 8,
+        }, headers=auth_headers)
+        aid = r.json()["id"]
+
+        first_week = client.post(f"/api/athletes/{aid}/week", headers=auth_headers)
+        assert first_week.status_code == 201
+
+        patch_resp = client.patch(
+            f"/api/athletes/{aid}",
+            json={"weekly_km": 85},
+            headers=auth_headers,
+        )
+        assert patch_resp.status_code == 200
+
+        second_week = client.post(f"/api/athletes/{aid}/week", headers=auth_headers)
+        assert second_week.status_code == 201
+
+        with SyncSession() as session:
+            rows = session.execute(
+                select(WeekPlanDB).where(WeekPlanDB.athlete_id == aid)
+            ).scalars().all()
+        assert len(rows) == 1
+
+    def test_week_invalidated_after_complete_workout(self, client, auth_headers):
+        r = client.post("/api/athletes", json={
+            "name": "Invalidate Workout", "target_distance": "10k",
+            "race_time_seconds": 2400, "weekly_km": 80,
+            "experience_years": 5, "current_phase": "supportive",
+            "week_in_phase": 4, "phase_weeks_total": 8,
+        }, headers=auth_headers)
+        aid = r.json()["id"]
+
+        first_week = client.post(f"/api/athletes/{aid}/week", headers=auth_headers)
+        assert first_week.status_code == 201
+
+        workout_resp = client.post(f"/api/athletes/{aid}/complete-workout", json={
+            "date": "2026-03-16",
+            "workout_key": "tempo_continuous",
+            "zone": "z90",
+            "distance_km": 12.0,
+        }, headers=auth_headers)
+        assert workout_resp.status_code == 201
+
+        second_week = client.post(f"/api/athletes/{aid}/week", headers=auth_headers)
+        assert second_week.status_code == 201
+
+    def test_week_invalidated_after_race(self, client, auth_headers):
+        r = client.post("/api/athletes", json={
+            "name": "Invalidate Race", "target_distance": "10k",
+            "race_time_seconds": 2400, "weekly_km": 80,
+            "experience_years": 5, "current_phase": "supportive",
+            "week_in_phase": 4, "phase_weeks_total": 8,
+        }, headers=auth_headers)
+        aid = r.json()["id"]
+
+        first_week = client.post(f"/api/athletes/{aid}/week", headers=auth_headers)
+        assert first_week.status_code == 201
+
+        race_resp = client.post(f"/api/athletes/{aid}/race", json={
+            "date": "2026-03-15",
+            "distance": "10k",
+            "time_seconds": 2340,
+        }, headers=auth_headers)
+        assert race_resp.status_code == 201
+
+        second_week = client.post(f"/api/athletes/{aid}/week", headers=auth_headers)
+        assert second_week.status_code == 201
 
     def test_complete_workout_and_history(self, client, auth_headers):
         r = client.post("/api/athletes", json={

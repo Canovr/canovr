@@ -6,6 +6,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 
 import pytest
+from litestar.exceptions import ClientException
 from litestar.testing import TestClient
 from sqlalchemy import select
 
@@ -79,6 +80,60 @@ class TestStravaAuth:
 
 
 class TestEmailAuth:
+    def test_register_is_idempotent_for_same_email_and_password(self, client: TestClient):
+        email = _random_email()
+        payload = {
+            "email": email,
+            "password": "secure-pass-123",
+            "name": "Idempotent User",
+        }
+
+        first = client.post("/api/auth/register", json=payload)
+        assert first.status_code == 201
+
+        second = client.post("/api/auth/register", json=payload)
+        assert second.status_code == 201
+        body = second.json()
+        assert body["access_token"]
+        assert body["refresh_token"]
+        assert body["needs_onboarding"] is True
+
+    def test_register_duplicate_email_with_other_password_returns_409(self, client: TestClient):
+        email = _random_email()
+        first_payload = {
+            "email": email,
+            "password": "secure-pass-123",
+            "name": "Same Mail",
+        }
+        second_payload = {
+            "email": email,
+            "password": "wrong-pass-999",
+            "name": "Same Mail",
+        }
+
+        first = client.post("/api/auth/register", json=first_payload)
+        assert first.status_code == 201
+
+        second = client.post("/api/auth/register", json=second_payload)
+        assert second.status_code == 409
+
+    def test_register_returns_503_when_token_persist_fails(self, client: TestClient, monkeypatch):
+        email = _random_email()
+
+        def _fail_issue_tokens(_user_id: int):
+            raise ClientException(
+                detail="Authentifizierung vorübergehend nicht verfügbar. Bitte erneut versuchen.",
+                status_code=503,
+            )
+
+        monkeypatch.setattr("app.auth_routes._issue_tokens", _fail_issue_tokens)
+
+        response = client.post(
+            "/api/auth/register",
+            json={"email": email, "password": "secure-pass-123", "name": "Token Fail"},
+        )
+        assert response.status_code == 503
+
     def test_register_login_refresh_logout_flow(self, client: TestClient):
         email = _random_email()
         password = "secure-pass-123"

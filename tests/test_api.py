@@ -50,6 +50,13 @@ class TestRootEndpoint:
         data = r.json()
         assert data["app"] == "CanovR"
 
+    def test_unknown_path_returns_clean_404(self, client):
+        r = client.get("/this-path-does-not-exist")
+        assert r.status_code == 404
+        body = r.json()
+        assert body["status_code"] == 404
+        assert body["detail"]
+
 
 class TestDistances:
     def test_returns_all_distances(self, client, auth_headers):
@@ -97,6 +104,9 @@ class TestRecommendEndpoint:
         assert r.status_code == 201
         data = r.json()
         assert data["recovery_needed"] is True
+        assert data["recovery_reason"]
+        assert "PyReason" not in data["recovery_reason"]
+        assert "R10" not in data["recovery_reason"]
         # Nur Easy + Strides
         workout_keys = [w["name"] for w in data["recommended_workouts"]]
         assert len(workout_keys) <= 2

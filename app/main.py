@@ -13,8 +13,10 @@ import time
 import uuid
 from typing import Any, Awaitable, Callable
 
-from litestar import Litestar, MediaType, get
+from litestar import Litestar, MediaType, Request, Response, get
 from litestar.di import Provide
+from litestar.exceptions import NotFoundException
+from litestar.logging import LoggingConfig
 from litestar.middleware import DefineMiddleware
 from litestar.openapi import OpenAPIConfig
 from litestar.openapi.spec import Contact, Tag
@@ -251,6 +253,25 @@ async def on_startup() -> None:
     threading.Thread(target=_warmup_pyreason, daemon=True).start()
 
 
+def _handle_not_found(_: Request, exc: NotFoundException) -> Response:
+    return Response(
+        media_type=MediaType.JSON,
+        status_code=404,
+        content={"status_code": 404, "detail": exc.detail},
+    )
+
+
+def _exception_logging_handler(logger: logging.Logger, scope: Any, tb: list[str]) -> None:
+    # Skip NotFoundException — 404s are normal traffic, not unhandled errors.
+    if tb and "NotFoundException" in tb[-1]:
+        return
+    logger.exception(
+        "Uncaught exception (connection_type=%s, path=%r):",
+        scope["type"],
+        scope["path"],
+    )
+
+
 app = Litestar(
     route_handlers=[
         index,
@@ -263,6 +284,8 @@ app = Litestar(
         AthleteController,
     ],
     dependencies={"current_user": Provide(provide_current_user, sync_to_thread=True)},
+    exception_handlers={NotFoundException: _handle_not_found},
+    logging_config=LoggingConfig(exception_logging_handler=_exception_logging_handler),
     middleware=[DefineMiddleware(RequestLoggingMiddleware)],
     on_startup=[on_startup],
     debug=_parse_bool(os.environ.get("CANOVR_DEBUG"), default=False),

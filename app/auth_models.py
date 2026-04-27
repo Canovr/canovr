@@ -5,7 +5,7 @@ from __future__ import annotations
 import datetime as dt
 from typing import TYPE_CHECKING
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy import ForeignKey, String, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -58,13 +58,13 @@ class StravaAuthRequest(BaseModel):
 
 
 class EmailRegisterRequest(BaseModel):
-    email: str = Field(max_length=255)
+    email: EmailStr = Field(max_length=255)
     password: str = Field(min_length=8, max_length=128)
     name: str = Field(max_length=100)
 
 
 class EmailLoginRequest(BaseModel):
-    email: str
+    email: EmailStr
     password: str
 
 

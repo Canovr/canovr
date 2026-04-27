@@ -114,17 +114,16 @@ class TrainingController(Controller):
                 ))
         workouts.sort(key=lambda w: w.percentage)
 
-        # Phase hint aus PyReason
         phase_hint = None
         if inference.ready_for_next:
-            phase_hint = "PyReason: Bereit für nächste Trainingsphase."
+            phase_hint = "Bereit für nächste Trainingsphase."
         elif inference.ready_for_taper:
-            phase_hint = "PyReason: Taper einleiten."
+            phase_hint = "Taper einleiten."
 
         return TrainingRecommendation(
             athlete_phase=data.current_phase,
             recovery_needed=inference.needs_recovery,
-            recovery_reason="PyReason R10: fatigued → needs_recovery" if inference.needs_recovery else None,
+            recovery_reason="Erholung empfohlen — letzte harte Einheit liegt noch nicht lange zurück." if inference.needs_recovery else None,
             pace_zones=pace_zones,
             recommended_workouts=workouts,
             reasoning_trace=inference.trace,

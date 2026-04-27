@@ -80,6 +80,14 @@ class TestStravaAuth:
 
 
 class TestEmailAuth:
+    def test_register_rejects_malformed_email(self, client: TestClient):
+        for bad in ["not-an-email", "missing-at.example.com", "user@", "@example.com", "user@@example.com"]:
+            response = client.post(
+                "/api/auth/register",
+                json={"email": bad, "password": "secure-pass-123", "name": "Bad"},
+            )
+            assert response.status_code == 400, f"expected 400 for {bad!r}, got {response.status_code}"
+
     def test_register_is_idempotent_for_same_email_and_password(self, client: TestClient):
         email = _random_email()
         payload = {
